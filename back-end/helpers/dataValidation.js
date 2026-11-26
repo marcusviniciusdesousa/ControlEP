@@ -32,9 +32,41 @@ const validateName = (userName) => {
   return regex.reName.test(userName);
 };
 
-// Function to validate role
-const validateRole = (role) => {
-  return true;
+// Function to validate role ID format (existence is checked in the database)
+const validateRole = (role) => isPositiveInt(role);
+
+// Positive integer ID (accepts numbers or numeric strings)
+const isPositiveInt = (value) =>
+  value !== null &&
+  value !== "" &&
+  typeof value !== "boolean" &&
+  Number.isInteger(Number(value)) &&
+  Number(value) > 0;
+
+// Free text name for shifts, equipment, roles, etc. (letters, numbers and basic punctuation)
+const validateLabel = (value, max = 40) =>
+  typeof value === "string" &&
+  value.trim().length >= 2 &&
+  value.trim().length <= max &&
+  /^[\p{L}\p{N}][\p{L}\p{N} ._\-/()º°#]*$/u.test(value.trim());
+
+// Days of week: non-empty array of distinct integers 0 (Sunday) .. 6 (Saturday)
+const normalizeDaysOfWeek = (value) => {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 7) return null;
+  const days = value.map(Number);
+  if (days.some((d) => !Number.isInteger(d) || d < 0 || d > 6)) return null;
+  const unique = [...new Set(days)].sort((a, b) => a - b);
+  return unique.length === days.length ? unique : null;
+};
+
+// Day of week (0 = Sunday) for a YYYY-MM-DD string, without timezone shifts
+const weekdayOf = (isoDate) => new Date(`${isoDate}T12:00:00Z`).getUTCDay();
+
+// Strict boolean parsing for JSON payloads
+const parseBoolean = (value) => {
+  if (value === true || value === "true" || value === 1 || value === "1") return true;
+  if (value === false || value === "false" || value === 0 || value === "0") return false;
+  return null;
 };
 
 // Function to leave only numbers in functions
@@ -106,7 +138,13 @@ module.exports = {
   validateTime,
   validateName,
   validateRole,
+  isPositiveInt,
+  validateLabel,
+  normalizeDaysOfWeek,
+  weekdayOf,
+  parseBoolean,
   trimStringNumber,
   validateCPF,
+  validatePhone,
   validatePassword,
 };

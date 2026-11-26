@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { paths } from '../../routes/paths';
 import type { AuthMode } from '../../types/auth';
 import { AuthForm } from './AuthForm';
+import { PasswordRecovery } from './PasswordRecovery';
 
 const content = {
   login: { icon: LogIn, title: 'Bem-vindo de volta', subtitle: 'Acesse sua conta para continuar' },
@@ -11,7 +12,7 @@ const content = {
   forgot: {
     icon: Mail,
     title: 'Recuperar senha',
-    subtitle: 'Enviaremos um link para redefinir sua senha',
+    subtitle: 'Enviaremos um código para redefinir sua senha',
   },
   reset: {
     icon: TriangleAlert,
@@ -40,12 +41,12 @@ export function AuthScreen({ mode }: { mode: AuthMode }) {
           <>
             <div className="auth-card">
               <p>
-                O link utilizado parece estar incompleto. Solicite um novo e-mail de recuperação de
-                senha.
+                A redefinição de senha é feita com um código enviado por e-mail. Solicite um novo
+                código.
               </p>
             </div>
             <Link className="auth-link" to={paths.forgotPassword}>
-              Solicitar novo link
+              Solicitar código
             </Link>
           </>
         ) : sent ? (
@@ -61,7 +62,11 @@ export function AuthScreen({ mode }: { mode: AuthMode }) {
           </div>
         ) : (
           <>
-            <AuthForm mode={mode} onRecoveryRequested={() => setSent(true)} />
+            {mode === 'forgot' ? (
+              <PasswordRecovery />
+            ) : (
+              <AuthForm mode={mode} onRecoveryRequested={() => setSent(true)} />
+            )}
             <div className="auth-bottom">
               {mode === 'register' ? (
                 <>

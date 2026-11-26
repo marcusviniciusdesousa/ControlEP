@@ -58,6 +58,7 @@ export function AuthForm({ mode, onRecoveryRequested }: Props) {
       try {
         const result = await register({ name, email, password, roleId });
         notify(result.message);
+        // Exibe a confirmação de "cadastro enviado / aguardando aprovação"
         onRecoveryRequested();
       } catch (err) {
         setError(
@@ -89,36 +90,13 @@ export function AuthForm({ mode, onRecoveryRequested }: Props) {
 
   return (
     <form className="auth-card" onSubmit={(event) => void submit(event)}>
-      {mode !== 'forgot' && (
-        <>
-          <button
-            type="button"
-            className="google-button"
-            onClick={() =>
-              setError('O login com Google estará disponível após a integração com autenticação.')
-            }
-          >
-            <span className="google-g">G</span>Continuar com Google
-          </button>
-          <div className="or">
-            <span />
-            OU
-            <span />
-          </div>
-        </>
-      )}
+      {/* Login com Google oculto até a integração existir no back-end */}
       {mode === 'register' && (
         <label>
           Nome completo
           <div className="input-icon">
             <User size={16} />
-            <input
-              type="text"
-              name="name"
-              autoComplete="name"
-              placeholder="Seu nome"
-              required
-            />
+            <input type="text" name="name" autoComplete="name" placeholder="Seu nome" required />
           </div>
         </label>
       )}
@@ -146,11 +124,16 @@ export function AuthForm({ mode, onRecoveryRequested }: Props) {
               type="password"
               name="password"
               autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-              minLength={6}
+              minLength={mode === 'register' ? 8 : undefined}
               placeholder="••••••••"
               required
             />
           </div>
+          {mode === 'register' && (
+            <small className="field-hint">
+              Mínimo de 8 caracteres, com letra maiúscula, minúscula, número e símbolo.
+            </small>
+          )}
         </label>
       )}
       {mode === 'register' && (
@@ -162,7 +145,7 @@ export function AuthForm({ mode, onRecoveryRequested }: Props) {
               type="password"
               name="confirm"
               autoComplete="new-password"
-              minLength={6}
+              minLength={8}
               placeholder="••••••••"
               required
             />

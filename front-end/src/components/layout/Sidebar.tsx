@@ -19,7 +19,7 @@ export function Sidebar({ onClose }: { onClose: () => void }) {
 
   const roleName =
     roles.find((r) => r.id === currentUser?.roleId)?.name ||
-    (currentUser?.roleId ? `Perfil #${currentUser.roleId}` : 'Conectado');
+    (currentUser?.roleId ? `Perfil #${currentUser.roleId}` : '');
 
   const handleLogout = async () => {
     await logout();
@@ -58,10 +58,6 @@ export function Sidebar({ onClose }: { onClose: () => void }) {
         ))}
       </nav>
       <div className="sidebar-bottom">
-        <div className="workspace-info">
-          <span className="live-dot" />
-          Conectado ao servidor
-        </div>
         <div className="profile">
           <div className="avatar">{initials}</div>
           <div>

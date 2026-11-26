@@ -1,120 +1,215 @@
-import { useState } from 'react';
+import { TriangleAlert, UserCheck, UserX } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { Badge } from '../components/ui/Badge';
 import { DataTable } from '../components/ui/DataTable';
+import { Modal } from '../components/ui/Modal';
 import { PageHeader } from '../components/ui/PageHeader';
+import { ApprovalControls } from '../components/users/ApprovalControls';
 import { useControl } from '../contexts/ControlContext';
 import { useNotification } from '../contexts/NotificationContext';
-import { ApiError, fetchUsers, toggleUserStatus, updateUser } from '../services/api';
+import { usePersistentState } from '../hooks/usePersistentState';
+import { errorMessage, setUserStatus, updateUser } from '../services/api';
+import type { BadgeTone, User, UserStatus } from '../types/models';
+import { isMasterRole } from '../utils/roles';
 
-/** Usuários e atribuição de papéis integrados ao back-end. */
+const statusTone: Record<UserStatus, BadgeTone> = {
+  Pendente: 'amber',
+  Ativo: 'green',
+  Inativo: 'neutral',
+  Rejeitado: 'red',
+};
+
+/** Usuários: aprovação de cadastros, atribuição de papéis e ativação/desativação. */
 export default function UsersPage() {
-  const { roles, users, setUsers, currentUser } = useControl();
+  const { roles, users, reloadUsers, currentUser } = useControl();
   const { notify } = useNotification();
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [filter, setFilter] = usePersistentState<'Todos' | UserStatus>('users:filter', 'Todos');
+  const [toDeactivate, setToDeactivate] = useState<User | null>(null);
 
-  const handleRoleChange = async (userId: string, nextRoleId: string) => {
-    const target = users.find((u) => u.id === userId);
-    if (!target || !nextRoleId || busyId) return;
+  useEffect(() => {
+    void reloadUsers().catch(() => {});
+  }, [reloadUsers]);
 
+  const visibleUsers = users.filter((u) => filter === 'Todos' || u.status === filter);
+  const pendingCount = users.filter((u) => u.status === 'Pendente').length;
+  const masters = users.filter((u) => isMasterRole(u.role));
+  const iAmMaster = isMasterRole(roles.find((r) => r.id === currentUser?.roleId)?.name);
+
+  const run = async (
+    userId: string,
+    action: () => Promise<void>,
+    success: string,
+    failure: string,
+  ) => {
+    if (busyId) return;
     setBusyId(userId);
     try {
-      await updateUser({
-        id: target.id,
-        name: target.name,
-        email: target.email,
-        id_role: nextRoleId,
-      });
-      const updated = await fetchUsers();
-      setUsers(updated);
-      notify('Papel atualizado com sucesso.');
+      await action();
+      await reloadUsers();
+      notify(success);
     } catch (err) {
-      notify(err instanceof ApiError ? err.message : 'Erro ao atualizar papel do usuário.');
+      notify(errorMessage(err, failure));
     } finally {
       setBusyId(null);
     }
   };
 
-  const handleToggleStatus = async (userId: string) => {
-    if (busyId) return;
-    setBusyId(userId);
-    try {
-      await toggleUserStatus(userId);
-      const updated = await fetchUsers();
-      setUsers(updated);
-      notify('Status do usuário atualizado.');
-    } catch (err) {
-      notify(err instanceof ApiError ? err.message : 'Erro ao alterar status do usuário.');
-    } finally {
-      setBusyId(null);
-    }
+  const changeRole = (u: User, roleId: string) =>
+    void run(
+      u.id,
+      () => updateUser({ id: u.id, name: u.name, email: u.email, id_role: roleId }),
+      'Papel atualizado.',
+      'Erro ao atualizar papel do usuário.',
+    );
+
+  const confirmDeactivate = async () => {
+    if (!toDeactivate) return;
+    const target = toDeactivate;
+    setToDeactivate(null);
+    await run(
+      target.id,
+      () => setUserStatus(target.id, false),
+      'Usuário desativado.',
+      'Erro ao desativar usuário.',
+    );
   };
 
   return (
     <>
       <PageHeader title="Usuários" subtitle="Aprove cadastros e atribua papéis de acesso." />
-      <DataTable headers={['Usuário', 'Papel', 'Status', 'Ações']} empty={!users.length}>
-        {users.map((u) => {
-          const isProtected =
-            u.role.toLowerCase().startsWith('master') ||
-            u.role.toLowerCase().startsWith('supervisor') ||
-            u.id === currentUser?.id;
+      {masters.length > 1 && (
+        <div className="notice warning" role="alert">
+          <TriangleAlert size={16} />
+          <span>
+            Existem {masters.length} usuários com o papel Master (
+            {masters.map((m) => m.name).join(', ')}). O sistema permite apenas um: altere o papel
+            dos demais.
+          </span>
+        </div>
+      )}
+      <div className="list-toolbar">
+        <span>
+          {users.length} usuários
+          {pendingCount > 0 && ` · ${pendingCount} aguardando aprovação`}
+        </span>
+        <select
+          value={filter}
+          onChange={(e) => setFilter(e.target.value as typeof filter)}
+          aria-label="Filtrar por status"
+        >
+          {['Todos', 'Pendente', 'Ativo', 'Inativo', 'Rejeitado'].map((s) => (
+            <option key={s}>{s}</option>
+          ))}
+        </select>
+      </div>
+      <DataTable headers={['Usuário', 'Papel', 'Status', 'Ações']} empty={!visibleUsers.length}>
+        {visibleUsers.map((u) => {
+          const isSelf = u.id === currentUser?.id;
+          const awaitingDecision = u.status === 'Pendente' || u.status === 'Rejeitado';
+          // Só o Master altera outro Master
+          const locked = isSelf || (isMasterRole(u.role) && !iAmMaster);
 
           return (
             <tr key={u.id}>
               <td>
                 <div className="user-cell">
-                  <strong>{u.name}</strong>
+                  <strong>
+                    {u.name}
+                    {isSelf && ' (você)'}
+                  </strong>
                   <small>{u.email}</small>
                 </div>
               </td>
               <td>
-                {isProtected ? (
-                  <span>{u.role || 'Master'}</span>
+                {awaitingDecision || locked ? (
+                  <span>{u.role || '—'}</span>
                 ) : (
                   <select
                     aria-label={`Papel de ${u.name}`}
-                    value={u.roleId || ''}
+                    value={u.roleId}
                     disabled={busyId === u.id}
-                    onChange={(e) => void handleRoleChange(u.id, e.target.value)}
+                    onChange={(e) => changeRole(u, e.target.value)}
                   >
-                    {!u.roleId && <option value="">{u.role || 'Selecione...'}</option>}
-                    {roles.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.name}
-                      </option>
-                    ))}
+                    {roles.map((r) => {
+                      const taken = isMasterRole(r.name) && masters.some((m) => m.id !== u.id);
+                      return (
+                        <option key={r.id} value={r.id} disabled={taken}>
+                          {r.name}
+                          {taken ? ' (já atribuído)' : ''}
+                        </option>
+                      );
+                    })}
                   </select>
                 )}
               </td>
               <td>
-                <Badge
-                  tone={
-                    u.status === 'Pendente'
-                      ? 'amber'
-                      : u.role.toLowerCase().startsWith('master')
-                        ? 'amber'
-                        : 'green'
-                  }
-                >
-                  {u.status}
-                </Badge>
+                <Badge tone={statusTone[u.status]}>{u.status}</Badge>
               </td>
               <td>
-                {!isProtected && (
-                  <button
-                    type="button"
-                    className="ghost"
-                    disabled={busyId === u.id}
-                    onClick={() => void handleToggleStatus(u.id)}
-                  >
-                    {u.status === 'Ativo' ? 'Desativar' : 'Aprovar'}
-                  </button>
+                {awaitingDecision ? (
+                  <ApprovalControls user={u} />
+                ) : (
+                  !locked &&
+                  (u.status === 'Ativo' ? (
+                    <button
+                      type="button"
+                      className="status-action deactivate"
+                      disabled={busyId === u.id}
+                      onClick={() => setToDeactivate(u)}
+                    >
+                      <UserX size={14} />
+                      Desativar
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="status-action activate"
+                      disabled={busyId === u.id}
+                      onClick={() =>
+                        void run(
+                          u.id,
+                          () => setUserStatus(u.id, true),
+                          'Usuário ativado.',
+                          'Erro ao ativar usuário.',
+                        )
+                      }
+                    >
+                      <UserCheck size={14} />
+                      {busyId === u.id ? 'Ativando...' : 'Ativar'}
+                    </button>
+                  ))
                 )}
               </td>
             </tr>
           );
         })}
       </DataTable>
+
+      {toDeactivate && (
+        <Modal
+          title={`Desativar ${toDeactivate.name}?`}
+          onClose={() => setToDeactivate(null)}
+          className="confirm"
+          alert
+        >
+          <span className="delete-symbol">
+            <UserX size={24} />
+          </span>
+          <p>
+            O acesso será bloqueado imediatamente e as sessões abertas deste usuário serão
+            encerradas. Você pode reativá-lo a qualquer momento.
+          </p>
+          <div className="modal-footer">
+            <button className="secondary" onClick={() => setToDeactivate(null)}>
+              Cancelar
+            </button>
+            <button className="primary" onClick={() => void confirmDeactivate()}>
+              Desativar usuário
+            </button>
+          </div>
+        </Modal>
+      )}
     </>
   );
 }

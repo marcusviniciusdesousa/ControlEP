@@ -54,7 +54,7 @@ export function RowActions({ kind, row }: { kind: RecordKind; row: Row }) {
         className="danger-icon"
         title="Excluir"
         aria-label={`Excluir ${row.name || row.equipment}`}
-        onClick={() => requestDelete(kind, row.id)}
+        onClick={() => requestDelete(kind, row.id, row.name || row.equipment)}
       >
         <Trash2 size={15} />
       </button>

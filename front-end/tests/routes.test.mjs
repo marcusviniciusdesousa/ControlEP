@@ -29,28 +29,66 @@ after(async () => {
   delete globalThis.window;
 });
 
-const routes = [
-  ['/', 'Painel Geral'],
-  ['/funcionarios', 'Funcionários'],
-  ['/equipamentos', 'Equipamentos'],
-  ['/presenca', 'Lista de Presença'],
-  ['/uso-equipamentos', 'Uso de Equipamentos'],
-  ['/usuarios', 'Usuários'],
-  ['/aprovacoes', 'Aprovações'],
-  ['/gestao', 'Gestão'],
+const render = (path) =>
+  renderToString(
+    React.createElement(MemoryRouter, { initialEntries: [path] }, React.createElement(App)),
+  );
+
+// Páginas públicas renderizam diretamente
+const publicRoutes = [
   ['/login', 'Bem-vindo de volta'],
   ['/cadastro', 'Crie sua conta'],
   ['/recuperar-senha', 'Recuperar senha'],
   ['/redefinir-senha', 'Link de recuperação inválido'],
-  ['/pagina-inexistente', 'Página não encontrada'],
 ];
-for (const [path, title] of routes) {
-  test(`rota ${path} renderiza a página esperada`, () => {
-    const html = renderToString(
-      React.createElement(MemoryRouter, { initialEntries: [path] }, React.createElement(App)),
-    );
+for (const [path, title] of publicRoutes) {
+  test(`rota pública ${path} renderiza a página esperada`, () => {
+    const html = render(path);
     assert.ok(html.includes(`<h1>${title}</h1>`));
-    if (path === '/login') assert.ok(!html.includes('class="sidebar"'));
-    if (path === '/') assert.ok(html.includes('class="sidebar"'));
+    assert.ok(!html.includes('class="sidebar"'));
   });
 }
+
+// Páginas internas ficam protegidas até a sessão ser confirmada pela API
+const protectedRoutes = [
+  '/',
+  '/funcionarios',
+  '/equipamentos',
+  '/presenca',
+  '/uso-equipamentos',
+  '/usuarios',
+  '/aprovacoes',
+  '/gestao',
+  '/pagina-inexistente',
+];
+for (const path of protectedRoutes) {
+  test(`rota protegida ${path} não expõe conteúdo antes de validar a sessão`, () => {
+    const html = render(path);
+    assert.ok(html.includes('Verificando sessão'));
+    assert.ok(!html.includes('class="sidebar"'));
+  });
+}
+
+test('API: status de usuário, renovação apenas em 401 e empréstimo em aberto', async () => {
+  const api = await server.ssrLoadModule('/src/services/api.ts');
+  assert.equal(
+    api.mapUserStatus({ approval_status: 'Pendente', status_active: false }),
+    'Pendente',
+  );
+  assert.equal(
+    api.mapUserStatus({ approval_status: 'Rejeitado', status_active: false }),
+    'Rejeitado',
+  );
+  assert.equal(api.mapUserStatus({ approval_status: 'Aprovado', status_active: false }), 'Inativo');
+  assert.equal(api.mapUserStatus({ approval_status: 'Aprovado', status_active: true }), 'Ativo');
+  assert.equal(api.isAuthStatus(401), true);
+  assert.equal(api.isAuthStatus(403), false);
+  const eq = api.mapApiEquipment({
+    id: 1,
+    name: 'NB',
+    equipment_status: 'Em uso',
+    open_use_id: 4,
+    open_use_employee: 'Rai',
+  });
+  assert.equal(eq.openUseEmployee, 'Rai');
+});

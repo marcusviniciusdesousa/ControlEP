@@ -296,3 +296,261 @@
     margin-bottom: 20px;
   }
 }
+@media (max-width: 1100px) {
+  .stats.four {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .stats.four .stat:first-child {
+    grid-column: auto;
+  }
+}
+@media (max-width: 520px) {
+  .stats.four {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------------------------------------------------------------- */
+/* Consistência entre dispositivos (tablet e celular)               */
+/* ---------------------------------------------------------------- */
+
+/* Grade de presença: primeira coluna (funcionário) fixa ao rolar os dias */
+.layout-scroll th:first-child,
+.layout-scroll td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: #fff;
+  box-shadow: 1px 0 0 #f0f3f7;
+}
+
+@media (max-width: 950px) {
+  .section-heading {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .list-toolbar {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .approval-actions {
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 640px) {
+  /* Cabeçalho da página: ações ocupam a largura toda, alinhadas à esquerda */
+  .page-heading .heading-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+  .page-heading .heading-actions > button {
+    flex: 1 1 auto;
+  }
+  .list-toolbar > .search,
+  .list-toolbar > select {
+    width: 100%;
+  }
+
+  /* Tabelas viram cartões: "rótulo  valor" em cada linha */
+  .layout-cards table,
+  .layout-cards tbody,
+  .layout-cards tr,
+  .layout-cards td {
+    display: block;
+    width: 100%;
+  }
+  .layout-cards thead {
+    display: none;
+  }
+  .layout-cards tr {
+    padding: 12px 16px;
+    border-bottom: 1px solid #f0f3f7;
+  }
+  .layout-cards tr:last-child {
+    border-bottom: 0;
+  }
+  .layout-cards td {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    height: auto;
+    min-height: 30px;
+    padding: 5px 0;
+    border: 0;
+    white-space: normal;
+    text-align: right;
+  }
+  .layout-cards td::before {
+    content: attr(data-label);
+    flex: 0 0 auto;
+    color: #9aa4b4;
+    font-size: 10px;
+    text-align: left;
+  }
+  .layout-cards td[data-label='']::before {
+    display: none;
+  }
+  .layout-cards td[data-label=''] {
+    justify-content: flex-end;
+  }
+  /* Primeira coluna = título do cartão */
+  .layout-cards td:first-child {
+    justify-content: flex-start;
+    text-align: left;
+    font-size: 13px;
+    font-weight: 600;
+    padding-bottom: 8px;
+  }
+  .layout-cards td:first-child::before {
+    display: none;
+  }
+  .layout-cards td > select {
+    width: auto;
+    max-width: 65%;
+  }
+  .layout-cards .permission-list,
+  .layout-cards .approval-actions,
+  .layout-cards .shift-days {
+    justify-content: flex-end;
+  }
+
+  /* Diálogos ocupam quase a tela toda e os campos ficam em uma coluna */
+  .modal-overlay {
+    padding: 10px;
+    align-items: flex-end;
+  }
+  .modal {
+    max-height: 94vh;
+  }
+  .form-grid {
+    grid-template-columns: 1fr;
+    padding: 18px;
+    gap: 16px;
+  }
+  .form-grid fieldset {
+    grid-template-columns: 1fr;
+  }
+  .modal-footer {
+    padding: 14px 18px;
+  }
+  .modal-footer > button {
+    flex: 1;
+  }
+}
+@media (max-width: 640px) {
+  .layout-cards td:empty {
+    display: none;
+  }
+}
+
+/* ---------------------------------------------------------------- */
+/* Ajustes finos para celular                                       */
+/* ---------------------------------------------------------------- */
+@media (max-width: 640px) {
+  /* Cartões: ações no canto superior direito, ao lado do título */
+  .layout-cards tr {
+    position: relative;
+  }
+  .layout-cards td[data-label='']:last-child {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: auto;
+    min-height: 0;
+    padding: 0;
+  }
+  .layout-cards td:first-child {
+    padding-right: 84px;
+  }
+  .layout-cards td[data-empty='true'] {
+    display: none;
+  }
+  /* Listas longas (permissões, dias do turno) ficam abaixo do rótulo */
+  .layout-cards td:has(.permission-list),
+  .layout-cards td:has(.shift-days) {
+    flex-direction: column;
+    align-items: flex-start;
+    text-align: left;
+    gap: 6px;
+  }
+  .layout-cards .permission-list,
+  .layout-cards .shift-days {
+    justify-content: flex-start;
+  }
+  .layout-cards .permission-list .badge {
+    white-space: nowrap;
+  }
+
+  /* Abas da Gestão: três colunas iguais, rótulos curtos */
+  .tabs.management-tabs {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    width: 100%;
+  }
+  .management-tabs button {
+    padding: 9px 4px;
+    gap: 5px;
+  }
+  .tab-label-long {
+    display: none;
+  }
+  .tab-label-short {
+    display: inline;
+  }
+  .section-heading > .primary {
+    margin-left: auto;
+  }
+
+  /* Lista de presença: seletores compactos sem cortar o texto */
+  .layout-scroll td,
+  .layout-scroll th {
+    padding: 8px;
+  }
+  .layout-scroll th:nth-child(2),
+  .layout-scroll td:nth-child(2) {
+    display: none;
+  }
+  .layout-scroll td:first-child {
+    max-width: 110px;
+    white-space: normal;
+    font-size: 12px;
+  }
+  .mobile-only {
+    display: block;
+    margin-top: 2px;
+    font-size: 10px;
+    font-weight: 400;
+    color: #9aa4b4;
+  }
+  .presence-cell {
+    min-width: 0;
+  }
+  .presence-cell select {
+    width: auto;
+    height: 30px;
+    padding: 0 4px 0 7px;
+    font-size: 10.5px;
+  }
+}
+@media (max-width: 640px) {
+  .shift-hours {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    white-space: normal;
+  }
+  .shift-hours small {
+    flex-basis: 100%;
+    text-align: right;
+  }
+}
+@media (max-width: 520px) {
+  /* Indicadores de equipamentos em duas colunas para reduzir a rolagem */
+  .stats.four {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .stats.four .stat {
+    min-height: 0;
+  }
+}

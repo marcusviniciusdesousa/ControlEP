@@ -1,8 +1,12 @@
-(
-echo node_modules/
-echo .env
-echo .env.*
-echo !.env.example
-echo dist/
-echo .DS_Store
-) > .gitignore
+# Dependências e builds
+node_modules/
+dist/
+
+# Variáveis de ambiente locais (apenas os modelos .env.example são versionados)
+.env
+.env.*
+!.env.example
+
+# Sistema operacional / editores
+.DS_Store
+Thumbs.db

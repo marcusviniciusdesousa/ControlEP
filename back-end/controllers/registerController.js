@@ -1,54 +1,60 @@
-// File for register controller, for adding a password to a user
+// Cadastro público: o usuário fica "Pendente" até ser aprovado por um administrador.
 
-const bcrypt = require("bcrypt"); // Module for cryptography
-
-// Importing database
+const bcrypt = require("bcrypt");
 const db = require("../db");
-
-// // Importing SQL queries
 const { queries: q } = require("./queries/queries");
-
-// Importing validation functions
 const validate = require("../helpers/dataValidation");
+const { isMasterRoleName } = require("../helpers/masterRole");
 
-// Function to create new user
 const registerUser = async (req, res) => {
-  const { nome_usuario, email_usuario, senha_usuario, id_funcao } = req.body;
+  const { nome_usuario, email_usuario, senha_usuario, id_funcao } = req.body || {};
 
-  // If email or password is missing, return error
-  if (!email_usuario || !senha_usuario)
-    return res
-      .status(400)
-      .json({ Message: "É necessário digitar email e senha." });
+  if (!email_usuario || !senha_usuario) {
+    return res.status(400).json({ message: "É necessário informar e-mail e senha." });
+  }
 
-  // Validating user data
-  if (
-    !validate.validateName(nome_usuario) ||
-    !validate.validateEmail(email_usuario) ||
-    !validate.validatePassword(senha_usuario) ||
-    !validate.validateRole(id_funcao)
-  )
+  const name = typeof nome_usuario === "string" ? nome_usuario.trim() : "";
+  const email = typeof email_usuario === "string" ? email_usuario.trim().toLowerCase() : "";
+
+  if (!validate.validateName(name)) {
+    return res.status(400).json({ message: "Informe um nome válido (somente letras, 3 a 80 caracteres)." });
+  }
+  if (!validate.validateEmail(email)) {
+    return res.status(400).json({ message: "Informe um e-mail válido." });
+  }
+  if (typeof senha_usuario !== "string" || !validate.validatePassword(senha_usuario)) {
     return res.status(400).json({
-      message: `Dados inválidos`,
+      message:
+        "A senha deve ter de 8 a 80 caracteres, com letra maiúscula, minúscula, número e símbolo.",
     });
+  }
+  if (!validate.isPositiveInt(id_funcao)) {
+    return res.status(400).json({ message: "Papel solicitado inválido." });
+  }
 
-  // In case everything is well
   try {
-    // Encrypting and salting the password in 10 rounds (Standard)
-    let hashedPwd = await bcrypt.hash(senha_usuario, 10);
+    // O papel é apenas uma solicitação: o administrador confirma ou altera ao aprovar.
+    const { rows: roleRows } = await db.query(q.qSelectRoleById, [Number(id_funcao)]);
+    if (!roleRows.length) {
+      return res.status(400).json({ message: "Papel solicitado não encontrado." });
+    }
+    // O papel Master é único e não pode ser solicitado no autocadastro
+    if (isMasterRoleName(roleRows[0].name)) {
+      return res.status(400).json({ message: "Este papel não pode ser solicitado no cadastro." });
+    }
 
-    // Adding new user
-    await db.query(q.qAddNewUser, [
-      nome_usuario,
-      email_usuario.toLowerCase(),
-      hashedPwd,
-      id_funcao,
-    ]);
+    const hashedPwd = await bcrypt.hash(senha_usuario, 10);
+    await db.query(q.qAddNewUser, [name, email, hashedPwd, Number(id_funcao)]);
 
-    // Sending success status
-    res.status(201).json({ message: `Usuário cadastrado.` });
+    return res.status(201).json({
+      message: "Cadastro enviado. O acesso será liberado após a aprovação de um administrador.",
+    });
   } catch (err) {
-    res.status(500).json(err);
+    if (err.code === "23505") {
+      return res.status(409).json({ message: "Já existe um cadastro com este e-mail." });
+    }
+    console.error("Erro no cadastro:", err);
+    return res.status(500).json({ message: "Não foi possível concluir o cadastro." });
   }
 };
 

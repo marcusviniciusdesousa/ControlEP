@@ -1,16 +1,20 @@
 import { Package, Search } from 'lucide-react';
-import { useState } from 'react';
+import { usePersistentState } from '../hooks/usePersistentState';
 import { CreateButton, ExportButton, RowActions } from '../components/records/RecordActions';
 import { Badge } from '../components/ui/Badge';
 import { DataTable } from '../components/ui/DataTable';
 import { PageHeader } from '../components/ui/PageHeader';
 import { useControl } from '../contexts/ControlContext';
+import { equipmentStatusTone } from '../utils/status';
+
 /** Inventário de equipamentos e acesso ao histórico de empréstimos. */
 export default function EquipmentPage() {
   const { equipment } = useControl();
-  const [search, setSearch] = useState('');
-  const filteredEquipment = equipment.filter((item) =>
-    item.name.toLowerCase().includes(search.toLowerCase()),
+  const [search, setSearch] = usePersistentState('equipment:search', '');
+  const term = search.trim().toLowerCase();
+  const filteredEquipment = equipment.filter(
+    (item) =>
+      !term || item.name.toLowerCase().includes(term) || item.serial.toLowerCase().includes(term),
   );
   return (
     <>
@@ -19,7 +23,16 @@ export default function EquipmentPage() {
         subtitle="Inventário e controle de posse dos seus equipamentos."
         actions={
           <>
-            <ExportButton rows={equipment} name="equipamentos" />
+            <ExportButton
+              rows={equipment.map((e) => ({
+                Nome: e.name,
+                Tipo: e.type,
+                Identificação: e.serial,
+                Status: e.status,
+                'Em uso por': e.openUseEmployee,
+              }))}
+              name="equipamentos"
+            />
             <CreateButton kind="equipment" label="Novo equipamento" />
           </>
         }
@@ -52,7 +65,8 @@ export default function EquipmentPage() {
             <td>{e.type}</td>
             <td>{e.serial || '—'}</td>
             <td>
-              <Badge tone={e.status === 'Ativo' ? 'green' : 'neutral'}>{e.status}</Badge>
+              <Badge tone={equipmentStatusTone(e.status)}>{e.status}</Badge>
+              {e.openUseEmployee && <small className="cell-note">{e.openUseEmployee}</small>}
             </td>
             <td>
               <RowActions kind="equipment" row={e} />

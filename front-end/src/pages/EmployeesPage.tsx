@@ -1,15 +1,16 @@
 import { Search } from 'lucide-react';
-import { useState } from 'react';
+import { usePersistentState } from '../hooks/usePersistentState';
 import { CreateButton, RowActions } from '../components/records/RecordActions';
 import { Badge } from '../components/ui/Badge';
 import { DataTable } from '../components/ui/DataTable';
 import { PageHeader } from '../components/ui/PageHeader';
 import { useControl } from '../contexts/ControlContext';
+import { formatDate } from '../utils/dates';
 
 /** Cadastro de funcionários com busca local e ações compartilhadas de registro. */
 export default function EmployeesPage() {
   const { employees } = useControl();
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = usePersistentState('employees:search', '');
   const term = search.trim().toLowerCase();
 
   const filteredEmployees = employees.filter(
@@ -17,7 +18,8 @@ export default function EmployeesPage() {
       !term ||
       employee.name.toLowerCase().includes(term) ||
       employee.number.toLowerCase().includes(term) ||
-      employee.sector.toLowerCase().includes(term),
+      employee.sector.toLowerCase().includes(term) ||
+      employee.jms.toLowerCase().includes(term),
   );
 
   return (
@@ -39,7 +41,7 @@ export default function EmployeesPage() {
         </div>
       </div>
       <DataTable
-        headers={['Nome', 'Número', 'Cargo', 'Setor', 'Usuário JMS', 'Status', '']}
+        headers={['Nome', 'Número', 'Cargo', 'Setor', 'Turno', 'Admissão', 'Status', '']}
         empty={!filteredEmployees.length}
       >
         {filteredEmployees.map((e) => (
@@ -48,7 +50,8 @@ export default function EmployeesPage() {
             <td>{e.number || '—'}</td>
             <td>{e.role || '—'}</td>
             <td>{e.sector || '—'}</td>
-            <td>{e.jms || '—'}</td>
+            <td>{e.shift || '—'}</td>
+            <td>{formatDate(e.admission) || '—'}</td>
             <td>
               <Badge tone={e.status === 'Ativo' ? 'green' : 'neutral'}>{e.status}</Badge>
             </td>

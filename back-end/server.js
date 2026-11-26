@@ -1,70 +1,69 @@
 // Main server file
+require("dotenv").config({ quiet: true });
 
-// Importing packages
 const express = require("express");
-const app = express();
-const path = require("path");
 const cors = require("cors");
 const cookieParser = require("cookie-parser");
 
-// Importing other files functions
 const verifyJWT = require("./middleware/verifyJWT");
 const corsOptions = require("./config/corsOptions");
 const verifyCredentials = require("./middleware/credentials");
+const { errorHandler, notFound } = require("./middleware/errorHandler");
 
-// Setting localhost port
+// Falha cedo se variáveis obrigatórias estiverem ausentes (ver .env.example)
+const REQUIRED_ENV = ["DATABASE_URL", "ACCESS_TOKEN_SECRET", "REFRESH_TOKEN_SECRET"];
+const missingEnv = REQUIRED_ENV.filter((name) => !process.env[name]);
+if (missingEnv.length) {
+  console.error(`Variáveis de ambiente ausentes: ${missingEnv.join(", ")}. Copie .env.example para .env.`);
+  process.exit(1);
+}
+
+const app = express();
 const PORT = process.env.PORT || 4500;
+
+app.disable("x-powered-by");
 
 // Checking credentials before cors
 app.use(verifyCredentials);
-
-// Cross Origin Resource Sharing
 app.use(cors(corsOptions));
-
-// built-in middleware to handle urlencoded data
-// in other words, form data:
-// content-type: application/x-www-form-urlencoded
 app.use(express.urlencoded({ extended: false }));
-
-// built-in middleware for json
 app.use(express.json());
-
-// Middleware for cookies
 app.use(cookieParser());
 
-// Routes
-// Handling new user
+// Health check (sem autenticação)
+app.get("/health", (req, res) => res.status(200).json({ status: "ok" }));
+
+// Rotas públicas
 app.use("/register", require("./routes/register"));
-
-// Handling authentication
 app.use("/auth", require("./routes/auth"));
-
-// Handling refresh token requests
 app.use("/refresh", require("./routes/refresh"));
-
-// Handling logout
 app.use("/logout", require("./routes/logout"));
-
-// Handling password reset
 app.use("/password-reset", require("./routes/passwordReset"));
 
-// Calling verify JWT (JSON Web Token) on all routes below this point
+// Todas as rotas abaixo exigem access token válido
 app.use(verifyJWT);
 
-// Handling users functions
 app.use("/users", require("./routes/api/users"));
 app.use("/employees", require("./routes/api/employees"));
 app.use("/roles", require("./routes/api/roles"));
 app.use("/permissions", require("./routes/api/permissions"));
 app.use("/equipments", require("./routes/api/equipment"));
+app.use("/equipment-uses", require("./routes/api/equipmentUse"));
 app.use("/presence", require("./routes/api/attendance"));
 app.use("/dashboard", require("./routes/api/dashboard"));
 app.use("/shifts", require("./routes/api/shifts"));
-
-// Handling user data refresh functions
+app.use("/lookups", require("./routes/api/lookups"));
 app.use("/refreshUser", require("./routes/refreshUser"));
 
-// Server Running
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+app.use(notFound);
+app.use(errorHandler);
+
+// Permite importar o app nos testes sem abrir a porta
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+    require("./config/mail").checkMailConnection();
+  });
+}
+
+module.exports = app;

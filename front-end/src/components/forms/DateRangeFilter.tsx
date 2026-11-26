@@ -1,29 +1,41 @@
+import { DateInput } from './DateInput';
+
 interface Props {
   from: string;
   to: string;
   onFromChange: (value: string) => void;
   onToChange: (value: string) => void;
+  fromLabel?: string;
+  toLabel?: string;
 }
 
-export function DateRangeFilter({ from, to, onFromChange, onToChange }: Props) {
+/** Par de datas (DD/MM/AAAA). Datas incompletas não alteram o filtro. */
+export function DateRangeFilter({
+  from,
+  to,
+  onFromChange,
+  onToChange,
+  fromLabel = 'Data início',
+  toLabel = 'Data fim',
+}: Props) {
   return (
     <>
       <label>
-        Data início
-        <input
-          type="date"
+        {fromLabel}
+        <DateInput
           value={from}
           max={to}
-          onChange={(event) => onFromChange(event.target.value)}
+          onChange={(v) => v && onFromChange(v)}
+          aria-label={fromLabel}
         />
       </label>
       <label>
-        Data fim
-        <input
-          type="date"
+        {toLabel}
+        <DateInput
           value={to}
           min={from}
-          onChange={(event) => onToChange(event.target.value)}
+          onChange={(v) => v && onToChange(v)}
+          aria-label={toLabel}
         />
       </label>
     </>

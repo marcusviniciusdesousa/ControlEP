@@ -8,7 +8,8 @@ const PERMISSIONS_LIST = require("../../config/rolesPermissionsList");
 router
   .route("/")
   .post(verifyRoles([PERMISSIONS_LIST.ROLES]), rolesController.addRole) // Route to add a new role
-  .get(verifyRoles([PERMISSIONS_LIST.ROLES]), rolesController.getAllRoles) // Route to get all roles from the database
+  // Usuários com permissão de "Usuários" também precisam da lista para aprovar cadastros
+  .get(verifyRoles([PERMISSIONS_LIST.ROLES, PERMISSIONS_LIST.USER]), rolesController.getAllRoles)
   .put(verifyRoles([PERMISSIONS_LIST.ROLES]), rolesController.updateRole); // Route to update role from database
 
 router

@@ -10,16 +10,17 @@
 | `.env.development` / `.env.production` | Valores opcionais por modo      | Não, pelas regras atuais |
 | `.env.[modo].local`                    | Sobrescritas locais por modo    | Não                      |
 
-O projeto já inclui `.env` e `.env.local`. Para novos clones, copie o modelo. Os arquivos por modo são opcionais e não foram criados porque os ambientes de implantação ainda não foram definidos.
+Para novos clones, copie o modelo `.env.example` para `.env`. Os arquivos por modo são opcionais e não foram criados porque os ambientes de implantação ainda não foram definidos.
 
 Arquivos específicos do modo têm prioridade sobre os genéricos; variantes `.local` sobrescrevem as correspondentes. Variáveis já definidas no processo que inicia o Vite têm prioridade. O servidor precisa ser reiniciado para carregar alterações.
 
 ## Variáveis disponíveis
 
-| Nome                | Exemplo                 | Aplicação                                          |
-| ------------------- | ----------------------- | -------------------------------------------------- |
-| `VITE_APP_NAME`     | `Control EP`            | Título da aba e nome no rodapé                     |
-| `VITE_API_BASE_URL` | `http://localhost:3000` | Reservada para a futura API; ainda sem requisições |
+| Nome                    | Exemplo                 | Aplicação                                                        |
+| ----------------------- | ----------------------- | ---------------------------------------------------------------- |
+| `VITE_APP_NAME`         | `Control EP`            | Título da aba e nome no rodapé                                   |
+| `VITE_API_BASE_URL`     | `http://localhost:4500` | Endereço da API; deve constar em `FRONTEND_ORIGINS` no back-end  |
+| `VITE_REGISTER_ROLE_ID` | `2`                     | Papel solicitado no autocadastro (confirmado pelo administrador) |
 
 O acesso a essas variáveis fica em `src/config/env.ts`, com declaração de tipos em `src/vite-env.d.ts`. Para adicionar uma configuração pública, atualize esses dois arquivos e `.env.example`.
 
@@ -29,7 +30,7 @@ O acesso a essas variáveis fica em `src/config/env.ts`, com declaração de tip
 
 O Vite substitui variáveis `VITE_*` durante a compilação. Seus valores são entregues ao navegador e podem ser inspecionados mesmo que o `.env` nunca tenha sido enviado ao GitHub. Use esse prefixo apenas para configurações públicas, como a URL de uma API.
 
-Credenciais de banco de dados, chaves privadas de serviços, segredos de assinatura e segredos OAuth pertencem ao ambiente do **backend**. Não os adicione com prefixo `VITE_` e não os inclua em componentes, arquivos TypeScript ou dados demonstrativos. Este repositório ainda não contém backend nem mecanismo de custódia de segredos.
+Credenciais de banco de dados, chaves privadas de serviços, segredos de assinatura e segredos OAuth pertencem ao ambiente do **back-end** (`back-end/.env`, modelo em `back-end/.env.example`). Não os adicione com prefixo `VITE_` e não os inclua em componentes, arquivos TypeScript ou dados demonstrativos.
 
 Os scripts de formatação ignoram arquivos `.env` para não os reescrever. O único modelo destinado ao versionamento é `.env.example`, que deve conter nomes de variáveis e exemplos públicos.
 

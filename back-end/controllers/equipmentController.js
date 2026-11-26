@@ -3,336 +3,245 @@
 const db = require("../db");
 const { queries: q } = require("./queries/queries");
 const validate = require("../helpers/dataValidation");
+const { STATUS_IN_USE } = require("./equipmentStatusHelpers");
 
-// Function to list all equipment
+const sendError = (res, status, message) => res.status(status).json({ message });
+
+/** Valida e normaliza os campos comuns de criação/edição. */
+const parseEquipmentBody = async (body) => {
+  const name = typeof body?.name === "string" ? body.name.trim().replace(/\s+/g, " ") : "";
+  const heritageCode = typeof body?.heritage_code === "string" ? body.heritage_code.trim() : "";
+  const observation =
+    typeof body?.observation === "string" ? body.observation.trim() || null : null;
+  const idSector =
+    body?.id_sector === "" || body?.id_sector === undefined || body?.id_sector === null
+      ? null
+      : Number(body.id_sector);
+
+  if (!validate.validateLabel(name, 40)) return { error: "Informe um nome válido (2 a 40 caracteres)." };
+  if (!validate.isPositiveInt(body.id_equipment_type)) return { error: "Selecione o tipo do equipamento." };
+  if (!heritageCode || heritageCode.length > 20) {
+    return { error: "Informe o código patrimonial (até 20 caracteres)." };
+  }
+  if (observation !== null && observation.length > 20) {
+    return { error: "A observação deve ter no máximo 20 caracteres." };
+  }
+  if (idSector !== null && !validate.isPositiveInt(idSector)) return { error: "Setor inválido." };
+
+  const { rows: typeRows } = await db.query(q.qSelectEquipmentTypeById, [Number(body.id_equipment_type)]);
+  if (!typeRows.length) return { error: "Tipo de equipamento não encontrado." };
+
+  if (idSector !== null) {
+    const { rows: sectorRows } = await db.query(q.qSelectSectorById, [idSector]);
+    if (!sectorRows.length) return { error: "Setor não encontrado." };
+  }
+
+  return {
+    value: { name, idType: Number(body.id_equipment_type), heritageCode, idSector, observation },
+  };
+};
+
+/** Valida um status escolhido manualmente ("Em uso" só é definido por empréstimos). */
+const resolveManualStatus = async (idStatus) => {
+  if (!validate.isPositiveInt(idStatus)) return { error: "Selecione o status do equipamento." };
+  const { rows } = await db.query(q.qSelectEquipmentStatusById, [Number(idStatus)]);
+  if (!rows.length) return { error: "Status de equipamento não encontrado." };
+  if (rows[0].name === STATUS_IN_USE) {
+    return {
+      error: 'O status "Em uso" é definido automaticamente ao registrar um empréstimo em Uso de Equipamentos.',
+    };
+  }
+  return { value: rows[0] };
+};
+
 const getAllEquipment = async (req, res) => {
   try {
     const { rows } = await db.query(q.qSelectAllEquipment);
-
-    return res.status(200).json({
-      equipment: rows,
-    });
+    return res.status(200).json({ equipment: rows });
   } catch (err) {
     console.error(err);
-    return res.status(500).json({
-      message: "Erro ao listar equipamentos.",
-    });
+    return sendError(res, 500, "Erro ao listar equipamentos.");
   }
 };
 
-// Function to get equipment by ID
 const getEquipmentByID = async (req, res) => {
-  const id = req.params.id;
+  if (!validate.isPositiveInt(req.params.id)) return sendError(res, 400, "ID inválido.");
 
   try {
-    const { rows } = await db.query(q.qSelectEquipmentById, [Number(id)]);
-
-    return res.status(200).json({
-      equipment: rows,
-    });
+    const { rows } = await db.query(q.qSelectEquipmentById, [Number(req.params.id)]);
+    if (!rows.length) return sendError(res, 404, "Equipamento não encontrado.");
+    return res.status(200).json({ equipment: rows[0] });
   } catch (err) {
     console.error(err);
-    return res.status(500).json({
-      message: "Equipamento não encontrado.",
-    });
+    return sendError(res, 500, "Erro ao buscar equipamento.");
   }
 };
 
-// Function to add new equipment
 const addEquipment = async (req, res) => {
-  let {
-    name,
-    id_equipment_type,
-    id_equipment_status,
-    heritage_code,
-    id_sector,
-    observation,
-  } = req.body;
-
-  const userId = Number(req.userId);
-
-  name = typeof name === "string" ? name.trim() : "";
-  heritage_code = typeof heritage_code === "string" ? heritage_code.trim() : "";
-  observation =
-    typeof observation === "string" ? observation.trim() || null : null;
-
-  if (id_sector === "" || id_sector === undefined || id_sector === null) {
-    id_sector = null;
-  }
-
-  if (
-    !validate.validateName(name) ||
-    !Number.isInteger(Number(id_equipment_type)) ||
-    Number(id_equipment_type) <= 0 ||
-    !Number.isInteger(Number(id_equipment_status)) ||
-    Number(id_equipment_status) <= 0 ||
-    !heritage_code ||
-    heritage_code.length > 20 ||
-    (observation !== null && observation.length > 20) ||
-    !Number.isInteger(userId) ||
-    userId <= 0 ||
-    (id_sector !== null &&
-      (!Number.isInteger(Number(id_sector)) || Number(id_sector) <= 0))
-  ) {
-    return res.status(400).json({
-      message: "Dados inválidos.",
-    });
-  }
-
   try {
-    const { rows: typeRows } = await db.query(q.qSelectEquipmentTypeById, [
-      Number(id_equipment_type),
-    ]);
+    const parsed = await parseEquipmentBody(req.body);
+    if (parsed.error) return sendError(res, 400, parsed.error);
 
-    if (!typeRows.length) {
-      return res.status(400).json({
-        message: "Tipo de equipamento não encontrado.",
-      });
-    }
+    const status = await resolveManualStatus(req.body.id_equipment_status);
+    if (status.error) return sendError(res, 400, status.error);
 
-    const { rows: statusRows } = await db.query(q.qSelectEquipmentStatusById, [
-      Number(id_equipment_status),
-    ]);
-
-    if (!statusRows.length) {
-      return res.status(400).json({
-        message: "Status de equipamento não encontrado.",
-      });
-    }
-
-    if (id_sector !== null) {
-      const { rows: sectorRows } = await db.query(q.qSelectSectorById, [
-        Number(id_sector),
-      ]);
-
-      if (!sectorRows.length) {
-        return res.status(400).json({
-          message: "Setor não encontrado.",
-        });
-      }
-    }
-
-    const { rows: existingEquipment } = await db.query(
-      q.qSelectEquipmentByHeritageCode,
-      [heritage_code],
-    );
-
-    if (existingEquipment.length > 0) {
-      return res.status(409).json({
-        message: "Código patrimonial já cadastrado.",
-      });
-    }
+    const v = parsed.value;
+    const { rows: dup } = await db.query(q.qCheckDuplicateHeritageCode, [v.heritageCode, -1]);
+    if (dup.length) return sendError(res, 409, "Código patrimonial já cadastrado.");
 
     const { rows } = await db.query(q.qAddEquipment, [
-      name,
-      Number(id_equipment_type),
-      Number(id_equipment_status),
-      heritage_code,
-      id_sector === null ? null : Number(id_sector),
-      observation,
-      userId,
+      v.name,
+      v.idType,
+      status.value.id,
+      v.heritageCode,
+      v.idSector,
+      v.observation,
+      Number(req.userId),
     ]);
+    const { rows: created } = await db.query(q.qSelectEquipmentById, [rows[0].id]);
 
-    return res.status(201).json({
-      message: "Equipamento cadastrado com sucesso.",
-      equipment: rows[0],
-    });
+    return res.status(201).json({ message: "Equipamento cadastrado com sucesso.", equipment: created[0] });
   } catch (err) {
+    if (err.code === "23505") return sendError(res, 409, "Código patrimonial já cadastrado.");
+    if (err.code === "23503") return sendError(res, 400, "Uma das referências informadas não existe.");
     console.error(err);
-
-    if (err.code === "23505") {
-      return res.status(409).json({
-        message: "Código patrimonial já cadastrado.",
-      });
-    }
-
-    if (err.code === "23503") {
-      return res.status(400).json({
-        message: "Uma das referências informadas não existe.",
-      });
-    }
-
-    return res.status(500).json({
-      message: "Erro ao cadastrar equipamento.",
-    });
+    return sendError(res, 500, "Erro ao cadastrar equipamento.");
   }
 };
 
-// Function to edit equipment
+// Atualiza dados cadastrais; se id_equipment_status vier no corpo, também altera o status
 const updateEquipment = async (req, res) => {
-  let { id, name, id_equipment_type, heritage_code, id_sector, observation } =
-    req.body;
-
-  const userId = Number(req.userId);
-
-  name = typeof name === "string" ? name.trim() : "";
-  heritage_code = typeof heritage_code === "string" ? heritage_code.trim() : "";
-  observation =
-    typeof observation === "string" ? observation.trim() || null : null;
-
-  if (id_sector === "" || id_sector === undefined || id_sector === null) {
-    id_sector = null;
-  }
-
-  if (
-    !Number.isInteger(Number(id)) ||
-    Number(id) <= 0 ||
-    !validate.validateName(name) ||
-    !Number.isInteger(Number(id_equipment_type)) ||
-    Number(id_equipment_type) <= 0 ||
-    !heritage_code ||
-    heritage_code.length > 20 ||
-    (observation !== null && observation.length > 20) ||
-    !Number.isInteger(userId) ||
-    userId <= 0 ||
-    (id_sector !== null &&
-      (!Number.isInteger(Number(id_sector)) || Number(id_sector) <= 0))
-  ) {
-    return res.status(400).json({
-      message: "Dados inválidos.",
-    });
-  }
+  const id = req.body?.id;
+  if (!validate.isPositiveInt(id)) return sendError(res, 400, "ID de equipamento inválido.");
 
   try {
-    const { rows: equipmentRows } = await db.query(q.qSelectEquipmentById, [
-      Number(id),
-    ]);
+    const { rows: current } = await db.query(q.qSelectEquipmentById, [Number(id)]);
+    if (!current.length) return sendError(res, 404, "Equipamento não encontrado.");
 
-    if (!equipmentRows.length) {
-      return res.status(404).json({
-        message: "Equipamento não encontrado.",
-      });
-    }
+    const parsed = await parseEquipmentBody(req.body);
+    if (parsed.error) return sendError(res, 400, parsed.error);
+    const v = parsed.value;
 
-    const { rows: typeRows } = await db.query(q.qSelectEquipmentTypeById, [
-      Number(id_equipment_type),
-    ]);
-
-    if (!typeRows.length) {
-      return res.status(400).json({
-        message: "Tipo de equipamento não encontrado.",
-      });
-    }
-
-    if (id_sector !== null) {
-      const { rows: sectorRows } = await db.query(q.qSelectSectorById, [
-        Number(id_sector),
-      ]);
-
-      if (!sectorRows.length) {
-        return res.status(400).json({
-          message: "Setor não encontrado.",
-        });
+    let newStatusId = null;
+    if (
+      req.body.id_equipment_status !== undefined &&
+      req.body.id_equipment_status !== null &&
+      Number(req.body.id_equipment_status) !== Number(current[0].id_equipment_status)
+    ) {
+      if (current[0].open_use_id) {
+        return sendError(res, 409, "Registre a devolução do equipamento antes de alterar o status.");
       }
+      const status = await resolveManualStatus(req.body.id_equipment_status);
+      if (status.error) return sendError(res, 400, status.error);
+      newStatusId = status.value.id;
     }
 
-    const { rows: duplicateRows } = await db.query(
-      q.qCheckDuplicateHeritageCode,
-      [heritage_code, Number(id)],
-    );
+    const { rows: dup } = await db.query(q.qCheckDuplicateHeritageCode, [v.heritageCode, Number(id)]);
+    if (dup.length) return sendError(res, 409, "Código patrimonial já cadastrado.");
 
-    if (duplicateRows.length > 0) {
-      return res.status(409).json({
-        message: "Código patrimonial já cadastrado.",
-      });
-    }
-
-    const { rows } = await db.query(q.qUpdateEquipment, [
-      name,
-      Number(id_equipment_type),
-      heritage_code,
-      id_sector === null ? null : Number(id_sector),
-      observation,
-      userId,
-      Number(id),
-    ]);
-
-    return res.status(200).json({
-      message: "Equipamento atualizado com sucesso.",
-      equipment: rows[0],
+    await db.withTransaction(async (client) => {
+      await client.query(q.qUpdateEquipment, [
+        v.name,
+        v.idType,
+        v.heritageCode,
+        v.idSector,
+        v.observation,
+        Number(req.userId),
+        Number(id),
+      ]);
+      if (newStatusId !== null) {
+        await client.query(q.qUpdateEquipmentStatus, [newStatusId, Number(req.userId), Number(id)]);
+      }
     });
+
+    const { rows: updated } = await db.query(q.qSelectEquipmentById, [Number(id)]);
+    return res.status(200).json({ message: "Equipamento atualizado com sucesso.", equipment: updated[0] });
   } catch (err) {
+    if (err.code === "23505") return sendError(res, 409, "Código patrimonial já cadastrado.");
+    if (err.code === "23503") return sendError(res, 400, "Uma das referências informadas não existe.");
     console.error(err);
-
-    if (err.code === "23505") {
-      return res.status(409).json({
-        message: "Código patrimonial já cadastrado.",
-      });
-    }
-
-    if (err.code === "23503") {
-      return res.status(400).json({
-        message: "Uma das referências informadas não existe.",
-      });
-    }
-
-    return res.status(500).json({
-      message: "Erro ao atualizar equipamento.",
-    });
+    return sendError(res, 500, "Erro ao atualizar equipamento.");
   }
 };
 
-// Function to change equipment status
+// PUT /equipments/status  { id, id_equipment_status }
 const updateEquipmentStatus = async (req, res) => {
-  const { id, id_equipment_status } = req.body;
-  const userId = Number(req.userId);
-
-  if (
-    !Number.isInteger(Number(id)) ||
-    Number(id) <= 0 ||
-    !Number.isInteger(Number(id_equipment_status)) ||
-    Number(id_equipment_status) <= 0 ||
-    !Number.isInteger(userId) ||
-    userId <= 0
-  ) {
-    return res.status(400).json({
-      message: "Dados inválidos.",
-    });
-  }
+  const { id, id_equipment_status } = req.body || {};
+  if (!validate.isPositiveInt(id)) return sendError(res, 400, "ID de equipamento inválido.");
 
   try {
-    const { rows: equipmentRows } = await db.query(q.qSelectEquipmentById, [
-      Number(id),
-    ]);
-
-    if (!equipmentRows.length) {
-      return res.status(404).json({
-        message: "Equipamento não encontrado.",
-      });
+    const { rows: current } = await db.query(q.qSelectEquipmentById, [Number(id)]);
+    if (!current.length) return sendError(res, 404, "Equipamento não encontrado.");
+    if (current[0].open_use_id) {
+      return sendError(res, 409, "Registre a devolução do equipamento antes de alterar o status.");
     }
 
-    const { rows: statusRows } = await db.query(q.qSelectEquipmentStatusById, [
-      Number(id_equipment_status),
-    ]);
+    const status = await resolveManualStatus(id_equipment_status);
+    if (status.error) return sendError(res, 400, status.error);
 
-    if (!statusRows.length) {
-      return res.status(400).json({
-        message: "Status de equipamento não encontrado.",
-      });
-    }
-
-    const { rows } = await db.query(q.qUpdateEquipmentStatus, [
-      Number(id_equipment_status),
-      userId,
-      Number(id),
-    ]);
-
-    return res.status(200).json({
-      message: "Status do equipamento atualizado com sucesso.",
-      equipment: rows[0],
-    });
+    await db.query(q.qUpdateEquipmentStatus, [status.value.id, Number(req.userId), Number(id)]);
+    const { rows } = await db.query(q.qSelectEquipmentById, [Number(id)]);
+    return res.status(200).json({ message: "Status do equipamento atualizado.", equipment: rows[0] });
   } catch (err) {
     console.error(err);
+    return sendError(res, 500, "Erro ao atualizar status do equipamento.");
+  }
+};
 
-    if (err.code === "23503") {
-      return res.status(400).json({
-        message: "Status ou usuário responsável não encontrado.",
-      });
+// DELETE /equipments/:id
+// Sem histórico de uso: exclusão física. Com histórico: exclusão lógica (o
+// equipamento some das listagens, mas o histórico de empréstimos é preservado).
+const deleteEquipment = async (req, res) => {
+  const id = req.params.id;
+  if (!validate.isPositiveInt(id)) return sendError(res, 400, "ID de equipamento inválido.");
+
+  try {
+    const result = await db.withTransaction(async (client) => {
+      const { rows } = await client.query(q.qLockEquipment, [Number(id)]);
+      if (!rows.length || rows[0].date_deleted) return { status: 404 };
+
+      const { rows: open } = await client.query(q.qSelectOpenUseByEquipment, [Number(id), null]);
+      if (open.length) return { status: 409 };
+
+      const { rows: uses } = await client.query(q.qSelectEquipmentUseCount, [Number(id)]);
+      if (uses[0].total > 0) {
+        await client.query(q.qSoftDeleteEquipment, [Number(req.userId), Number(id)]);
+        return { status: 200, logical: true };
+      }
+
+      await client.query(q.qDeleteEquipment, [Number(id)]);
+      return { status: 200, logical: false };
+    });
+
+    if (result.status === 404) return sendError(res, 404, "Equipamento não encontrado.");
+    if (result.status === 409) {
+      return sendError(res, 409, "O equipamento está em uso. Registre a devolução antes de excluí-lo.");
     }
 
-    return res.status(500).json({
-      message: "Erro ao atualizar status do equipamento.",
+    return res.status(200).json({
+      message: result.logical
+        ? "Equipamento excluído. O histórico de uso foi preservado."
+        : "Equipamento excluído.",
+      logical: result.logical,
     });
+  } catch (err) {
+    if (err.code === "23503") {
+      return sendError(res, 409, "O equipamento possui registros vinculados e não pode ser excluído.");
+    }
+    console.error(err);
+    return sendError(res, 500, "Erro ao excluir equipamento.");
+  }
+};
+
+// GET /equipments/:id/history
+const getEquipmentHistory = async (req, res) => {
+  if (!validate.isPositiveInt(req.params.id)) return sendError(res, 400, "ID inválido.");
+  try {
+    const { rows } = await db.query(q.qSelectEquipmentUsesByEquipment, [Number(req.params.id)]);
+    return res.status(200).json({ uses: rows });
+  } catch (err) {
+    console.error(err);
+    return sendError(res, 500, "Erro ao buscar histórico do equipamento.");
   }
 };
 
@@ -342,4 +251,6 @@ module.exports = {
   addEquipment,
   updateEquipment,
   updateEquipmentStatus,
+  deleteEquipment,
+  getEquipmentHistory,
 };
