@@ -4,34 +4,23 @@ const equipmentController = require("../../controllers/equipmentController");
 const verifyRoles = require("../../middleware/verifyRoles");
 const PERMISSIONS_LIST = require("../../config/rolesPermissionsList");
 
-// Verifying the access token before using the command
-router
-  .route("/")
-  .get(
-    verifyRoles([PERMISSIONS_LIST.EQUIPMENT]),
-    equipmentController.getAllEquipment,
-  ) // Route to get all equipments from database
-  .post(
-    verifyRoles([PERMISSIONS_LIST.EQUIPMENT]),
-    equipmentController.addEquipment,
-  ) // Route to add new equipment
-  .put(
-    verifyRoles([PERMISSIONS_LIST.EQUIPMENT]),
-    equipmentController.updateEquipment,
-  ); // Route to update equipment from database
+const canManage = verifyRoles([PERMISSIONS_LIST.EQUIPMENT]);
+const canRead = verifyRoles([PERMISSIONS_LIST.EQUIPMENT, PERMISSIONS_LIST.DASHBOARD]);
 
 router
-  .route("/status")
-  .put(
-    verifyRoles([PERMISSIONS_LIST.EQUIPMENT]),
-    equipmentController.updateEquipmentStatus,
-  ); // Route to update equipment status
+  .route("/")
+  .get(canRead, equipmentController.getAllEquipment)
+  .post(canManage, equipmentController.addEquipment)
+  .put(canManage, equipmentController.updateEquipment);
+
+// Precisa vir antes de "/:id" para não ser interpretado como ID
+router.put("/status", canManage, equipmentController.updateEquipmentStatus);
+
+router.get("/:id/history", canRead, equipmentController.getEquipmentHistory);
 
 router
   .route("/:id")
-  .get(
-    verifyRoles([PERMISSIONS_LIST.EQUIPMENT]),
-    equipmentController.getEquipmentByID,
-  ); // Route to get a specific equipment from the database
+  .get(canRead, equipmentController.getEquipmentByID)
+  .delete(canManage, equipmentController.deleteEquipment);
 
 module.exports = router;

@@ -1,22 +1,22 @@
-// File for refreshing user data upon page reload
+// Devolve os dados do usuário autenticado (usado ao recarregar a página).
 
 const db = require("../db");
 const { queries: q } = require("./queries/queries");
+const { isUserAllowed } = require("./sessionHelpers");
 
-// Function to handle refreshing user context (React auth)
 const handleRefreshUser = async (req, res) => {
-  const userId = Number(req.userId || req.id);
+  const userId = Number(req.userId);
 
   if (!Number.isInteger(userId) || userId <= 0) {
-    return res.sendStatus(401);
+    return res.status(401).json({ message: "Sessão expirada." });
   }
 
   try {
     const { rows } = await db.query(q.qSelectUserByID, [userId]);
     const user = rows[0];
 
-    if (!user) {
-      return res.sendStatus(401);
+    if (!user || !isUserAllowed(user)) {
+      return res.status(401).json({ message: "Sessão expirada." });
     }
 
     return res.status(200).json({
@@ -27,7 +27,7 @@ const handleRefreshUser = async (req, res) => {
       email: user.email,
       role: user.id_role,
       id_role: user.id_role,
-      role_name: user.role_name || user.name,
+      role_name: user.role_name,
       permissions: req.permissions || [],
     });
   } catch (err) {

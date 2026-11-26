@@ -2,8 +2,8 @@
 const crypto = require("crypto");
 const bcrypt = require("bcrypt"); // bcrypt to encrypt passwords
 const jwt = require("jsonwebtoken"); // jsonwebtoken to create, well, JSON Web Tokens
-require("dotenv").config();
-const { transporter } = require("../config/mail");
+require("dotenv").config({ quiet: true });
+const { transporter, isMailConfigured } = require("../config/mail");
 
 // Importing database
 const db = require("../db");
@@ -16,18 +16,26 @@ const validate = require("../helpers/dataValidation");
 
 // Function to request password reset
 const requestPasswordReset = async (req, res) => {
-  const { email_usuario } = req.body;
+  const { email_usuario } = req.body || {};
 
   // Always return the same response regardless of whether the email exists.
   const genericResponse = {
-    message: "O código foi enviado.",
+    message: "Se o e-mail estiver cadastrado, você receberá um código de verificação.",
   };
+
+  // Informado antes de consultar o e-mail, então não revela se a conta existe
+  if (!isMailConfigured) {
+    return res.status(503).json({
+      message:
+        "A recuperação de senha está indisponível: o envio de e-mails não foi configurado no servidor. Procure o administrador.",
+    });
+  }
 
   if (
     typeof email_usuario !== "string" ||
     !validate.validateEmail(email_usuario)
   ) {
-    return res.status(200).json(1);
+    return res.status(200).json(genericResponse);
   }
 
   try {
@@ -37,9 +45,9 @@ const requestPasswordReset = async (req, res) => {
 
     const user = rows[0];
 
-    // Do not reveal whether the email exists.
-    if (!user) {
-      return res.status(200).json(2);
+    // Do not reveal whether the email exists (nor whether it is approved).
+    if (!user || user.approval_status !== "Aprovado") {
+      return res.status(200).json(genericResponse);
     }
 
     const resetCode = crypto.randomInt(100000, 1000000).toString();
@@ -90,14 +98,14 @@ const requestPasswordReset = async (req, res) => {
     console.error("Erro ao fazer o pedido de alteração de senha:", error);
 
     // Do not expose internal errors or account existence.
-    return res.status(200).json(3);
+    return res.status(200).json(genericResponse);
   }
 };
 
 // Function to verify reset code
 const verifyResetCode = async (req, res) => {
-  const { code } = req.body;
-  const resetToken = req.cookies.resetToken;
+  const { code } = req.body || {};
+  const resetToken = req.cookies?.resetToken;
 
   if (!resetToken || typeof code !== "string") {
     return res.status(401).json({
@@ -164,8 +172,8 @@ const verifyResetCode = async (req, res) => {
 
 // Function to create new password
 const resetPassword = async (req, res) => {
-  const { senha_usuario } = req.body;
-  const resetToken = req.cookies.resetToken;
+  const { senha_usuario } = req.body || {};
+  const resetToken = req.cookies?.resetToken;
 
   if (!resetToken) {
     return res.status(401).json({
@@ -178,7 +186,8 @@ const resetPassword = async (req, res) => {
     !validate.validatePassword(senha_usuario)
   ) {
     return res.status(400).json({
-      message: "Senha inválida.",
+      message:
+        "A senha deve ter de 8 a 80 caracteres, com letra maiúscula, minúscula, número e símbolo.",
     });
   }
 
@@ -194,6 +203,8 @@ const resetPassword = async (req, res) => {
     const passwordHash = await bcrypt.hash(senha_usuario, 10);
 
     await db.query(q.qUpdateUserPassword, [passwordHash, decoded.userId]);
+    // Encerra sessões abertas com a senha antiga
+    await db.query(q.qDeleteRefreshTokenByID, [decoded.userId]);
 
     // Destroy the temporary reset session.
     res.clearCookie("resetToken", {

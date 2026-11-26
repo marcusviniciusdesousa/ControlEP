@@ -12,7 +12,13 @@ const rePasswd =
   /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_\-+=\[{\]};:'",<.>/?\\|`~])[\S]{8,80}$/;
 // File containing regexes for helper functions
 
+// CPF (11 digits) and Brazilian phone (10 or 11 digits), applied after removing non-digits
+const reCPF = /^\d{11}$/;
+const rePhone = /^\d{10,11}$/;
+
 const modules = {
+  reCPF,
+  rePhone,
   reName,
   reEmail,
   rePasswd,

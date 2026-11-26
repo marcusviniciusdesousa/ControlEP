@@ -1,12 +1,49 @@
-import type { Employee, Equipment, EquipmentUsage, RecordKind, Role, Row } from '../types/models';
+import type { RecordKind, Row } from '../types/models';
 
-type ParsedRecord =
-  | { kind: 'employee'; value: Employee }
-  | { kind: 'equipment'; value: Equipment }
-  | { kind: 'usage'; value: EquipmentUsage }
-  | { kind: 'role'; value: Role };
+export interface EmployeeForm {
+  id?: string;
+  name: string;
+  number: string;
+  positionId: string;
+  sectorId: string;
+  jms: string;
+  shiftId: string;
+  admission: string;
+  active: boolean;
+}
 
-/** Converte FormData em entidades tipadas sem persistir nem manipular a interface. */
+export interface EquipmentForm {
+  id?: string;
+  name: string;
+  typeId: string;
+  serial: string;
+  statusId: string;
+}
+
+export interface UsageForm {
+  id?: string;
+  equipmentId: string;
+  employeeId: string;
+  start: string;
+  end: string;
+  note: string;
+}
+
+export interface RoleForm {
+  id?: string;
+  name: string;
+  permissionIds: string[];
+}
+
+export type ParsedRecord =
+  | { kind: 'employee'; value: EmployeeForm }
+  | { kind: 'equipment'; value: EquipmentForm }
+  | { kind: 'usage'; value: UsageForm }
+  | { kind: 'role'; value: RoleForm };
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Converte FormData em dados tipados e valida os campos obrigatórios (sem persistir). */
 export function parseRecord(kind: RecordKind, data: FormData, previous?: Row): ParsedRecord {
   const read = (key: string) => String(data.get(key) ?? '').trim();
   const required = (key: string, label: string) => {
@@ -14,31 +51,37 @@ export function parseRecord(kind: RecordKind, data: FormData, previous?: Row): P
     if (!value) throw new Error(`Preencha o campo ${label}.`);
     return value;
   };
-  const id = previous?.id || crypto.randomUUID();
+  const id = previous?.id || undefined;
+
   switch (kind) {
-    case 'employee':
+    case 'employee': {
+      const admission = required('admission', 'data de admissão');
+      if (!DATE_RE.test(admission)) throw new Error('Informe uma data de admissão válida.');
       return {
         kind,
         value: {
           id,
           name: required('name', 'nome'),
           number: read('number'),
-          role: required('role', 'cargo'),
-          sector: read('sector'),
+          positionId: required('positionId', 'cargo'),
+          sectorId: read('sectorId'),
           jms: read('jms'),
-          shift: required('shift', 'turno'),
-          status: required('status', 'status'),
+          shiftId: required('shiftId', 'turno'),
+          admission,
+          active: required('status', 'status') === 'Ativo',
         },
       };
+    }
     case 'equipment':
       return {
         kind,
         value: {
           id,
           name: required('name', 'nome'),
-          type: required('type', 'tipo'),
-          serial: read('serial'),
-          status: required('status', 'status'),
+          typeId: required('typeId', 'tipo'),
+          serial: required('serial', 'código patrimonial'),
+          // O status fica bloqueado (campo desabilitado) enquanto o equipamento está em uso
+          statusId: read('statusId'),
         },
       };
     case 'usage': {
@@ -52,26 +95,23 @@ export function parseRecord(kind: RecordKind, data: FormData, previous?: Row): P
         kind,
         value: {
           id,
-          equipment: required('equipment', 'equipamento'),
-          employee: required('employee', 'funcionário'),
+          equipmentId: required('equipmentId', 'equipamento'),
+          employeeId: required('employeeId', 'funcionário'),
           start,
           end,
           note: read('note'),
         },
       };
     }
-    case 'role': {
-      const selectedIds = data.getAll('permission').map(String);
+    case 'role':
       return {
         kind,
         value: {
           id,
           name: required('name', 'nome do papel'),
-          permissions: selectedIds.join(', '),
-          permissionIds: selectedIds.join(','),
+          permissionIds: data.getAll('permission').map(String),
         },
       };
-    }
   }
 }
 

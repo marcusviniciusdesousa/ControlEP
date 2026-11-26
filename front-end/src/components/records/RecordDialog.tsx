@@ -3,24 +3,18 @@ import { useState, type FormEvent } from 'react';
 import { useControl } from '../../contexts/ControlContext';
 import { useNotification } from '../../contexts/NotificationContext';
 import {
-  ApiError,
   createEmployee,
   createEquipment,
+  createEquipmentUse,
   createRole,
-  deactivateEmployee,
-  fetchEmployees,
-  fetchEquipment,
-  fetchRolesWithPermissions,
-  fetchShifts,
-  parseNumericId,
-  resolveEquipmentStatusId,
-  resolveEquipmentTypeId,
+  errorMessage,
+  optionalNumber,
   updateEmployee,
   updateEquipment,
-  updateEquipmentStatus,
+  updateEquipmentUse,
   updateRole,
 } from '../../services/api';
-import { parseRecord, upsertRecord } from '../../services/records';
+import { parseRecord } from '../../services/records';
 import type { RecordDialogState } from '../../types/models';
 import { Modal } from '../ui/Modal';
 import { EquipmentHistory } from './EquipmentHistory';
@@ -33,14 +27,19 @@ const labels = {
   role: 'papel',
 };
 
+/** datetime-local (horário local) -> ISO com fuso, para o back-end gravar o instante correto. */
+const toIso = (value: string) => (value ? new Date(value).toISOString() : null);
+
 export function RecordDialog({
   record,
   onClose,
+  onSaved,
 }: {
   record: NonNullable<RecordDialogState>;
   onClose: () => void;
+  onSaved: (kind: NonNullable<RecordDialogState>['kind']) => void;
 }) {
-  const { setEmployees, setEquipment, setUsage, setRoles, currentUser } = useControl();
+  const { reloadEmployees, reloadEquipment, reloadRoles } = useControl();
   const { notify } = useNotification();
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -68,94 +67,73 @@ export function RecordDialog({
           const emp = parsed.value;
           const payload = {
             name: emp.name,
-            id_position: parseNumericId(emp.role, 1),
+            id_position: Number(emp.positionId),
             code_employee: emp.number || null,
             login_main_system: emp.jms || null,
-            id_sector: emp.sector ? parseNumericId(emp.sector, 0) || null : null,
-            id_shift: parseNumericId(emp.shift, 1),
+            id_sector: optionalNumber(emp.sectorId),
+            id_shift: Number(emp.shiftId),
+            date_admission: emp.admission,
+            // O status é enviado nos dois sentidos (ativo <-> inativo)
+            status_active: emp.active,
           };
-
-          if (record.row?.id) {
-            await updateEmployee({ ...payload, id: record.row.id });
-            if (record.row.status !== emp.status && emp.status === 'Inativo') {
-              await deactivateEmployee(record.row.id, currentUser?.id);
-            }
-          } else {
-            const created = await createEmployee(payload);
-            if (emp.status === 'Inativo' && created.id) {
-              await deactivateEmployee(created.id, currentUser?.id);
-            }
-          }
-
-          const shifts = await fetchShifts().catch(() => []);
-          setEmployees(await fetchEmployees(shifts));
+          if (emp.id) await updateEmployee({ ...payload, id: emp.id });
+          else await createEmployee(payload);
+          await reloadEmployees();
           break;
         }
         case 'role': {
           const role = parsed.value;
-          const nextPermissionIds = role.permissionIds
-            ? role.permissionIds.split(',').filter(Boolean)
-            : [];
-
-          if (record.row?.id) {
-            const previousPermissionIds = record.row.permissionIds
-              ? record.row.permissionIds.split(',').filter(Boolean)
-              : [];
-            await updateRole(record.row.id, role.name, previousPermissionIds, nextPermissionIds);
+          if (role.id) {
+            const previous = record.row?.permissionIds?.split(',').filter(Boolean) ?? [];
+            await updateRole(role.id, role.name, previous, role.permissionIds);
           } else {
-            await createRole(role.name, nextPermissionIds);
+            await createRole(role.name, role.permissionIds);
           }
-
-          setRoles(await fetchRolesWithPermissions());
+          await reloadRoles();
           break;
         }
         case 'equipment': {
           const eq = parsed.value;
-          if (!eq.serial) {
-            throw new Error('Preencha o código patrimonial do equipamento.');
-          }
-          const typeId = resolveEquipmentTypeId(eq.type);
-          const statusId = resolveEquipmentStatusId(eq.status);
-
-          if (record.row?.id) {
-            await updateEquipment({
-              id: record.row.id,
-              name: eq.name,
-              id_equipment_type: typeId,
-              heritage_code: eq.serial,
-              id_sector: record.row.sectorId ? Number(record.row.sectorId) : null,
-              observation: record.row.observation || null,
-            });
-            if (record.row.status !== eq.status) {
-              await updateEquipmentStatus(record.row.id, statusId).catch(() => {});
-            }
+          const payload = {
+            name: eq.name,
+            id_equipment_type: Number(eq.typeId),
+            heritage_code: eq.serial,
+            id_sector: optionalNumber(record.row?.sectorId),
+            observation: record.row?.observation || null,
+            // Ausente quando o campo está bloqueado (equipamento em uso)
+            ...(eq.statusId ? { id_equipment_status: Number(eq.statusId) } : {}),
+          };
+          if (eq.id) {
+            await updateEquipment({ ...payload, id: eq.id });
           } else {
-            await createEquipment({
-              name: eq.name,
-              id_equipment_type: typeId,
-              id_equipment_status: statusId,
-              heritage_code: eq.serial,
-              id_sector: null,
-              observation: null,
-            });
+            if (!eq.statusId) throw new Error('Selecione o status do equipamento.');
+            await createEquipment({ ...payload, id_equipment_status: Number(eq.statusId) });
           }
-
-          setEquipment(await fetchEquipment());
+          await reloadEquipment();
           break;
         }
-        case 'usage':
-          setUsage((rows) => upsertRecord(rows, parsed.value));
+        case 'usage': {
+          const use = parsed.value;
+          const payload = {
+            id_equipment: Number(use.equipmentId),
+            id_employee: Number(use.employeeId),
+            date_start: toIso(use.start) as string,
+            date_return: toIso(use.end),
+            observation: use.note || null,
+          };
+          if (use.id) await updateEquipmentUse(use.id, payload);
+          else await createEquipmentUse(payload);
+          // O status do equipamento muda junto com o empréstimo
+          await reloadEquipment();
           break;
+        }
       }
 
+      onSaved(kind);
       onClose();
       notify('Registro salvo com sucesso.');
     } catch (cause) {
-      setError(
-        cause instanceof ApiError || cause instanceof Error
-          ? cause.message
-          : 'Não foi possível salvar o registro.',
-      );
+      setError(errorMessage(cause, 'Não foi possível salvar o registro.'));
     } finally {
       setSaving(false);
     }

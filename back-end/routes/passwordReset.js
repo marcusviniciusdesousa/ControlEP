@@ -1,15 +1,13 @@
 const express = require("express");
 const router = express.Router();
 const passwordResetController = require("../controllers/passwordResetController");
-const verifyRoles = require("../middleware/verifyRoles");
-const PERMISSIONS_LIST = require("../config/rolesPermissionsList");
 
-// Verifying the access token before using the command
+// Navegadores não enviam corpo em requisições GET; por isso as etapas usam POST/PUT.
 router
   .route("/")
-  .get(passwordResetController.requestPasswordReset) // Route to request password reset
-  .put(passwordResetController.resetPassword); // Route to reset password
+  .post(passwordResetController.requestPasswordReset) // 1. solicita o código por e-mail
+  .put(passwordResetController.resetPassword); // 3. define a nova senha
 
-router.route("/verify/").get(passwordResetController.verifyResetCode); // Route to verify reset code
+router.post("/verify", passwordResetController.verifyResetCode); // 2. valida o código
 
 module.exports = router;

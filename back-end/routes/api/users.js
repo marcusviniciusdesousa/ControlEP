@@ -4,16 +4,21 @@ const usersController = require("../../controllers/usersController");
 const verifyRoles = require("../../middleware/verifyRoles");
 const PERMISSIONS_LIST = require("../../config/rolesPermissionsList");
 
-// Verifying the access token before using the command
+const canManageUsers = verifyRoles([PERMISSIONS_LIST.USER]);
+
 router
   .route("/")
-  .get(verifyRoles([PERMISSIONS_LIST.USER]), usersController.getAllUsers) // Route to get all users from the database
-  .put(verifyRoles([PERMISSIONS_LIST.USER]), usersController.updateUser); // Route to update user from database
+  .get(canManageUsers, usersController.getAllUsers) // Lista todos os usuários
+  .put(canManageUsers, usersController.updateUser); // Atualiza nome, e-mail e papel
+
+router.put("/:id/approve", canManageUsers, usersController.approveUser); // Aprova cadastro e define papel
+router.put("/:id/reject", canManageUsers, usersController.rejectUser); // Recusa cadastro
+router.put("/:id/status", canManageUsers, usersController.setUserStatus); // Ativa/desativa
 
 router
   .route("/:id")
-  .get(verifyRoles([PERMISSIONS_LIST.USER]), usersController.getUserByID) // Route to get a specific user from the database
-  .put(verifyRoles([PERMISSIONS_LIST.USER]), usersController.deactivateUser) // Route to deactivate user from database
-  .delete(verifyRoles([PERMISSIONS_LIST.USER]), usersController.deleteUser); // Route to delete user from database
+  .get(canManageUsers, usersController.getUserByID)
+  .put(canManageUsers, usersController.setUserStatus) // Compatibilidade: alterna status
+  .delete(canManageUsers, usersController.deleteUser);
 
 module.exports = router;

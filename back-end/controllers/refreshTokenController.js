@@ -1,63 +1,54 @@
-// Controller file to manage Refresh Tokens
+// Renovação de sessão com rotação do refresh token (janela deslizante).
+
+const jwt = require("jsonwebtoken");
+require("dotenv").config({ quiet: true });
 
 const db = require("../db");
 const { queries: q } = require("./queries/queries");
-const crypto = require("crypto");
-const jwt = require("jsonwebtoken");
-require("dotenv").config();
+const { REFRESH_ROTATION_GRACE_MS, clearAuthCookies } = require("../config/auth");
+const { hashToken, issueSession, isUserAllowed } = require("./sessionHelpers");
+
+const sessionExpired = (res, message = "Sua sessão expirou. Entre novamente.") => {
+  clearAuthCookies(res);
+  return res.status(401).json({ message, code: "SESSION_EXPIRED" });
+};
 
 const handleRefreshToken = async (req, res) => {
-  const cookies = req.cookies;
+  const refreshToken = req.cookies?.refreshToken;
+  if (!refreshToken) return sessionExpired(res);
 
-  if (!cookies?.refreshToken) return res.sendStatus(401);
-
-  const refreshToken = cookies.refreshToken;
+  let decoded;
+  try {
+    decoded = jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET);
+  } catch {
+    return sessionExpired(res);
+  }
 
   try {
-    const hashToken = crypto
-      .createHash("sha256")
-      .update(refreshToken)
-      .digest("hex");
+    const { rows } = await db.query(q.qSelectRefreshToken, [hashToken(refreshToken)]);
+    const session = rows[0];
 
-    const { rows } = await db.query(q.qSelectRefreshToken, [hashToken]);
-    const foundUser = rows[0];
+    if (!session || Number(decoded.userId) !== Number(session.id_user)) {
+      return sessionExpired(res);
+    }
 
-    if (!foundUser) return res.sendStatus(403);
+    if (!isUserAllowed(session)) {
+      await db.query(q.qDeleteRefreshTokenByID, [session.id_user]);
+      return sessionExpired(res, "Seu acesso foi desativado. Procure um administrador.");
+    }
 
-    const { rows: permissionRows } = await db.query(
-      q.qSelectPermissionsByRoleId,
-      [foundUser.id_role],
-    );
-    const permissions = permissionRows.map((p) => p.name);
+    // Rotação: novo par de tokens; o anterior continua válido por poucos segundos
+    // para requisições concorrentes (outra aba) não derrubarem a sessão.
+    await db.query(q.qExpireRefreshTokenSoon, [
+      session.id_session,
+      new Date(Date.now() + REFRESH_ROTATION_GRACE_MS),
+    ]);
+    const result = await issueSession(res, session);
 
-    jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET, (err, decoded) => {
-      if (err || foundUser.name !== decoded.username) return res.sendStatus(403);
-
-      const accessToken = jwt.sign(
-        {
-          userInfo: {
-            userId: foundUser.id,
-            username: foundUser.name,
-            role: foundUser.id_role,
-            permissions,
-          },
-        },
-        process.env.ACCESS_TOKEN_SECRET,
-        { expiresIn: "5m" },
-      );
-
-      res.cookie("accessToken", accessToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
-        maxAge: 5 * 60 * 1000,
-      });
-
-      return res.sendStatus(200);
-    });
+    return res.status(200).json(result);
   } catch (err) {
-    console.error(err);
-    return res.sendStatus(500);
+    console.error("Erro ao renovar sessão:", err);
+    return res.status(500).json({ message: "Não foi possível renovar a sessão." });
   }
 };
 

@@ -4,12 +4,7 @@ const dashboardController = require("../../controllers/dashboardController");
 const verifyRoles = require("../../middleware/verifyRoles");
 const PERMISSIONS_LIST = require("../../config/rolesPermissionsList");
 
-// Verifying the access token before using the command
-router
-  .route("/")
-  .get(
-    verifyRoles([PERMISSIONS_LIST.DASHBOARD]),
-    dashboardController.getDashboard,
-  ); // Route to get main data for dashboard from database
+// GET /dashboard?from=AAAA-MM-DD&to=AAAA-MM-DD
+router.get("/", verifyRoles([PERMISSIONS_LIST.DASHBOARD]), dashboardController.getDashboard);
 
 module.exports = router;

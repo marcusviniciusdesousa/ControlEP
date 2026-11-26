@@ -8,6 +8,16 @@ const { queries: q } = require("./queries/queries");
 
 // Importing validation helper functions
 const validate = require("../helpers/dataValidation");
+const { isMasterRoleName } = require("../helpers/masterRole");
+
+// Só pode existir um papel "Master" (o sistema permite apenas um usuário Master)
+const otherMasterRoleExists = async (exceptId) => {
+  const { rows } = await db.query(
+    `SELECT id FROM role WHERE LOWER(TRIM(name)) LIKE 'master%' AND id <> $1`,
+    [exceptId ?? -1],
+  );
+  return rows.length > 0;
+};
 
 // Function to list all roles
 const getAllRoles = async (req, res) => {
@@ -18,7 +28,7 @@ const getAllRoles = async (req, res) => {
     res.json(rows);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ message: "Erro ao buscar papels." });
+    res.status(500).json({ message: "Erro ao buscar papéis." });
   }
 };
 
@@ -51,15 +61,19 @@ const getRoleByID = async (req, res) => {
 const addRole = async (req, res) => {
   let { name } = req.body;
 
-  if (!validate.validateName(name)) {
+  if (typeof name !== "string" || !validate.validateLabel(name, 30)) {
     return res.status(400).json({
-      message: `Dados inválidos`,
+      message: "Informe um nome de papel válido (2 a 30 caracteres).",
     });
   }
 
   const formattedName = name.trim();
 
   try {
+    if (isMasterRoleName(formattedName) && (await otherMasterRoleExists(null))) {
+      return res.status(409).json({ message: "Já existe um papel Master; o sistema permite apenas um." });
+    }
+
     const { rows: existingRoles } = await db.query(q.qSelectRoleByName, [
       formattedName,
     ]);
@@ -89,9 +103,9 @@ const addRole = async (req, res) => {
 const updateRole = async (req, res) => {
   let { id, name } = req.body;
 
-  if (!id || !validate.validateName(name)) {
+  if (!validate.isPositiveInt(id) || typeof name !== "string" || !validate.validateLabel(name, 30)) {
     return res.status(400).json({
-      message: `Dados inválidos`,
+      message: "Informe um nome de papel válido (2 a 30 caracteres).",
     });
   }
 
@@ -107,12 +121,27 @@ const updateRole = async (req, res) => {
       });
     }
 
+    if (isMasterRoleName(formattedName) && (await otherMasterRoleExists(Number(id)))) {
+      return res.status(409).json({ message: "Já existe um papel Master; o sistema permite apenas um." });
+    }
+    if (isMasterRoleName(currentRoleData.name) && !isMasterRoleName(formattedName)) {
+      return res.status(409).json({ message: "O papel Master não pode ser renomeado." });
+    }
+
+    const { rows: duplicate } = await db.query(q.qSelectRoleByNameExceptId, [formattedName, Number(id)]);
+    if (duplicate.length > 0) {
+      return res.status(409).json({ message: "Já existe um papel com esse nome." });
+    }
+
     await db.query(q.qUpdateRole, [formattedName, Number(id)]);
 
     res.status(200).json({
       message: "Dados de papel atualizados",
     });
   } catch (err) {
+    if (err.code === "23505") {
+      return res.status(409).json({ message: "Já existe um papel com esse nome." });
+    }
     console.error(err);
 
     res.status(500).json({
@@ -156,11 +185,16 @@ const deleteRole = async (req, res) => {
       });
     }
 
-    // Removing role-permission associations
-    await db.query(q.qDeleteAllRolePermissions, [Number(id)]);
-
-    // Deleting role
-    const { rows: deletedRows } = await db.query(q.qDeleteRole, [Number(id)]);
+    // Removing role-permission associations and the role atomically
+    const deletedRows = await db.withTransaction(async (client) => {
+      await client.query(q.qDeleteAllRolePermissions, [Number(id)]);
+      const { rows } = await client.query(q.qDeleteRole, [Number(id)]);
+      if (rows.length === 0) throw Object.assign(new Error("role in use"), { code: "ROLE_IN_USE" });
+      return rows;
+    }).catch((err) => {
+      if (err.code === "ROLE_IN_USE") return [];
+      throw err;
+    });
 
     if (deletedRows.length === 0) {
       return res.status(409).json({

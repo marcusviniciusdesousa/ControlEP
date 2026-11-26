@@ -1,64 +1,59 @@
 // Controller file for dashboard related queries
 
-// Importing database
 const db = require("../db");
-
-// Importing queries file
 const { queries: q } = require("./queries/queries");
-
-// Importing validation helper functions
 const validate = require("../helpers/dataValidation");
 
-// Function to get main data for dashborad
-// It works with either a selected date, or the current date as default
+const today = () => {
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+};
+
+// GET /dashboard?from=AAAA-MM-DD&to=AAAA-MM-DD  (padrão: hoje)
+//
+// - employees.active_now / registered: situação ATUAL, não depende do período;
+// - attendance.*: registros dentro do período;
+// - attendance_by_employee: funcionários ativos já admitidos até o fim do período
+//   e, para manter o histórico, inativos que tenham registros no período;
+// - equipment: situação atual do inventário (não depende do período).
 const getDashboard = async (req, res) => {
+  const from = req.query.from ?? req.query.date ?? today();
+  const to = req.query.to ?? req.query.date ?? from;
+
+  if (!validate.validateDate(from) || !validate.validateDate(to) || from > to) {
+    return res.status(400).json({ message: "Período inválido. Use AAAA-MM-DD." });
+  }
+
   try {
-    const { date } = req.body || null;
+    const [employees, attendanceByStatus, attendanceByEmployee, equipmentSummary, equipmentByStatus] =
+      await Promise.all([
+        db.query(q.qDashboardEmployees),
+        db.query(q.qDashboardAttendanceByStatus, [from, to]),
+        db.query(q.qDashboardAttendanceByEmployee, [from, to]),
+        db.query(q.qDashboardEquipmentSummary),
+        db.query(q.qDashboardEquipmentByStatus),
+      ]);
 
-    if (date !== null && !validate.validateDate(date)) {
-      return res.status(400).json({
-        message: "Invalid date. Use YYYY-MM-DD.",
-      });
-    }
-
-    const [
-      dashboardDate,
-      activeEmployees,
-      attendance,
-      equipmentTotal,
-      equipmentByStatus,
-      equipmentByType,
-    ] = await Promise.all([
-      db.query(q.qDashboardDate, [date]),
-      db.query(q.qDashboardActiveEmployees),
-      db.query(q.qDashboardAttendanceSummary, [date]),
-      db.query(q.qDashboardEquipmentTotal),
-      db.query(q.qDashboardEquipmentByStatus),
-      db.query(q.qDashboardEquipmentByType),
-    ]);
+    const summary = equipmentSummary.rows[0];
 
     return res.status(200).json({
-      date: dashboardDate.rows[0].date,
-      employees: {
-        active: activeEmployees.rows[0].total_active_employees,
+      period: { from, to },
+      employees: employees.rows[0],
+      attendance: {
+        byStatus: attendanceByStatus.rows,
+        byEmployee: attendanceByEmployee.rows,
       },
-      attendance: attendance.rows[0],
       equipment: {
-        total: equipmentTotal.rows[0].total,
+        total: summary.total,
+        in_use: summary.in_use,
         byStatus: equipmentByStatus.rows,
-        byType: equipmentByType.rows,
       },
     });
   } catch (error) {
-    console.error("Erro ao carregar painél:", error);
-
-    return res.status(500).json({
-      message: "Não foi possível encontrar as informações do painél.",
-    });
+    console.error("Erro ao carregar painel:", error);
+    return res.status(500).json({ message: "Não foi possível carregar as informações do painel." });
   }
 };
 
-// Exporting dashboard functions
-module.exports = {
-  getDashboard,
-};
+module.exports = { getDashboard };

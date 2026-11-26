@@ -212,3 +212,22 @@ footer {
   margin-left: 0;
   width: 100%;
 }
+
+/* Perfil e "Sair" sempre visíveis: o menu rola quando a altura da janela é pequena */
+.sidebar > nav {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+.sidebar-bottom {
+  flex-shrink: 0;
+  background: #fff;
+}
+@media (max-height: 640px) {
+  .sidebar {
+    padding-top: 18px;
+  }
+  .nav-label {
+    margin: 22px 13px 10px;
+  }
+}

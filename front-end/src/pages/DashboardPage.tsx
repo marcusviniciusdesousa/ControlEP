@@ -7,8 +7,9 @@ import {
   Shield,
   Users,
   UserX,
+  Wrench,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { DateRangeFilter } from '../components/forms/DateRangeFilter';
 import { Badge } from '../components/ui/Badge';
@@ -16,54 +17,92 @@ import { DataTable } from '../components/ui/DataTable';
 import { PageHeader } from '../components/ui/PageHeader';
 import { useControl } from '../contexts/ControlContext';
 import { useDateRange } from '../hooks/useDateRange';
-import { countAttendance } from '../utils/dates';
+import { usePersistentState } from '../hooks/usePersistentState';
+import { errorMessage, fetchDashboard, type DashboardData } from '../services/api';
+import { equipmentStatusTone } from '../utils/status';
 
-/** Página de indicadores da operação. Filtros pertencem apenas a esta tela. */
+const ABSENT = 'Falta injustificada';
+
+/** Indicadores calculados pelo servidor (GET /dashboard). Filtros pertencem apenas a esta tela. */
 export default function DashboardPage() {
-  const { employees, equipment, usage, attendance } = useControl();
-  const [tab, setTab] = useState('Funcionários');
-  const { from, setFrom, to, setTo, days } = useDateRange();
+  const { equipment, reloadEquipment } = useControl();
+  const [tab, setTab] = usePersistentState('dashboard:tab', 'Funcionários');
+  const { from, setFrom, to, setTo } = useDateRange('dashboard');
+  const [data, setData] = useState<DashboardData | null>(null);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    setError('');
+    fetchDashboard(from, to)
+      .then((result) => active && setData(result))
+      .catch((err) => active && setError(errorMessage(err, 'Não foi possível carregar o painel.')));
+    return () => {
+      active = false;
+    };
+  }, [from, to]);
+
+  // Inventário sempre atualizado ao abrir o painel
+  useEffect(() => {
+    void reloadEquipment().catch(() => {});
+  }, [reloadEquipment]);
+
+  const byStatus = (name: string) =>
+    data?.attendance.byStatus.find((s) => s.status === name)?.quantity ?? 0;
+  const equipmentByStatus = (name: string) =>
+    data?.equipment.byStatus.find((s) => s.status === name)?.quantity ?? 0;
+
   const dates = <DateRangeFilter from={from} to={to} onFromChange={setFrom} onToChange={setTo} />;
-  const count = (value: string) => countAttendance(attendance, value, from, to);
 
-  // Exibe apenas funcionários ativos ou inativos que possuem registros no período selecionado
-  const visibleEmployees = employees.filter((e) => {
-    if (e.status === 'Ativo') return true;
-    return days.some((d) => Boolean(attendance[e.id + '|' + d]));
-  });
+  const employeeStats = [
+    {
+      label: 'Ativos atualmente',
+      value: data?.employees.active_now ?? 0,
+      icon: Users,
+      tone: 'neutral',
+      note: 'Situação atual; não considera o filtro de data',
+    },
+    {
+      label: 'Presenças no período',
+      value: byStatus('Presente'),
+      icon: CheckCircle2,
+      tone: 'green',
+      note: 'Comparecimentos registrados',
+    },
+    {
+      label: 'Faltas no período',
+      value: byStatus(ABSENT),
+      icon: UserX,
+      tone: 'red',
+      note: 'Faltas injustificadas',
+    },
+    {
+      label: 'Afastados no período',
+      value: byStatus('Afastado'),
+      icon: BriefcaseBusiness,
+      tone: 'neutral',
+      note: 'Afastamentos registrados',
+    },
+    {
+      label: 'Férias no período',
+      value: byStatus('Férias'),
+      icon: Palmtree,
+      tone: 'amber',
+      note: 'Registros de férias',
+    },
+  ];
 
-  // Empréstimos ativos na tela "Uso de Equipamentos" (sem data de devolução)
-  const activeLoans = usage.filter((u) => !u.end);
-
-  const isEquipmentLoaned = (e: (typeof equipment)[number]) => {
-    const labelWithSerial = `${e.name} · ${e.serial}`.trim().toLowerCase();
-    const nameOnly = e.name.trim().toLowerCase();
-    const serialOnly = (e.serial || '').trim().toLowerCase();
-
-    return activeLoans.some((u) => {
-      const target = u.equipment.trim().toLowerCase();
-      return (
-        target === labelWithSerial ||
-        target === nameOnly ||
-        (serialOnly !== '' && target.endsWith(serialOnly))
-      );
-    });
-  };
-
-  // Combina o status do banco com empréstimos em aberto registrados localmente
-  const equipmentWithEffectiveStatus = equipment.map((e) => ({
-    ...e,
-    effectiveStatus: isEquipmentLoaned(e) ? 'Em uso' : e.status,
-  }));
-
-  const inUseCount = equipmentWithEffectiveStatus.filter(
-    (e) => e.effectiveStatus.trim().toLowerCase() === 'em uso',
-  ).length;
-
-  const availableCount = equipmentWithEffectiveStatus.filter((e) => {
-    const st = e.effectiveStatus.trim().toLowerCase();
-    return st === 'disponível' || st === 'disponivel' || st === 'ativo';
-  }).length;
+  const inUse = data?.equipment.in_use ?? 0;
+  const equipmentStats = [
+    { label: 'Equipamentos cadastrados', value: data?.equipment.total ?? 0, icon: Package },
+    { label: 'Em uso (emprestados)', value: inUse, icon: BriefcaseBusiness },
+    { label: 'Disponíveis', value: equipmentByStatus('Disponível'), icon: CheckCircle2 },
+    {
+      label: 'Manutenção / inativos',
+      value: (data?.equipment.total ?? 0) - inUse - equipmentByStatus('Disponível'),
+      icon: Wrench,
+    },
+  ];
 
   return (
     <>
@@ -89,48 +128,17 @@ export default function DashboardPage() {
             </button>
           ))}
         </div>
-        <div className="filters">{dates}</div>
+        {tab === 'Funcionários' && <div className="filters">{dates}</div>}
       </div>
+      {error && (
+        <p role="alert" className="form-error">
+          {error}
+        </p>
+      )}
       {tab === 'Funcionários' ? (
         <>
           <div className="stats">
-            {[
-              {
-                label: 'Ativos atualmente',
-                value: employees.filter((e) => e.status === 'Ativo').length,
-                icon: Users,
-                tone: 'neutral',
-                note: 'Não considera o filtro de data',
-              },
-              {
-                label: 'Presenças no período',
-                value: count('Presente'),
-                icon: CheckCircle2,
-                tone: 'green',
-                note: 'Comparecimentos registrados',
-              },
-              {
-                label: 'Faltas no período',
-                value: count('Falta'),
-                icon: UserX,
-                tone: 'red',
-                note: 'Ausências registradas',
-              },
-              {
-                label: 'Afastados no período',
-                value: count('Afastado'),
-                icon: BriefcaseBusiness,
-                tone: 'neutral',
-                note: 'Afastamentos registrados',
-              },
-              {
-                label: 'Férias no período',
-                value: count('Férias'),
-                icon: Palmtree,
-                tone: 'amber',
-                note: 'Registros de férias',
-              },
-            ].map((s) => (
+            {employeeStats.map((s) => (
               <div className="stat" key={s.label}>
                 <div>
                   <span>{s.label}</span>
@@ -146,35 +154,34 @@ export default function DashboardPage() {
           <div className="section-heading">
             <div>
               <h2>Presença por funcionário</h2>
-              <p>Visão consolidada do período selecionado</p>
+              <p>
+                Funcionários ativos e, para consulta histórica, inativos com registros no período
+              </p>
             </div>
-            <Link to="/presenca">
+            {/* Abre a presença com o mesmo intervalo selecionado no painel */}
+            <Link to={`/presenca?from=${from}&to=${to}`}>
               Gerenciar presença <ArrowUpRight size={15} />
             </Link>
           </div>
           <DataTable
             headers={['Funcionário', 'Cargo', 'Presenças', 'Faltas']}
-            empty={!visibleEmployees.length}
+            empty={!data?.attendance.byEmployee.length}
           >
-            {visibleEmployees.map((e) => (
+            {data?.attendance.byEmployee.map((e) => (
               <tr key={e.id}>
                 <td>
                   <span className="person-cell">
                     <span className="avatar table-avatar">{e.name.slice(0, 2).toUpperCase()}</span>
                     {e.name}
-                    {e.status !== 'Ativo' && <Badge tone="neutral">Inativo</Badge>}
+                    {!e.status_active && <Badge tone="neutral">Inativo</Badge>}
                   </span>
                 </td>
-                <td>{e.role}</td>
+                <td>{e.position_name}</td>
                 <td>
-                  <Badge>
-                    {days.filter((d) => attendance[e.id + '|' + d] === 'Presente').length}
-                  </Badge>
+                  <Badge>{e.counts.Presente ?? 0}</Badge>
                 </td>
                 <td>
-                  <Badge tone="red">
-                    {days.filter((d) => attendance[e.id + '|' + d] === 'Falta').length}
-                  </Badge>
+                  <Badge tone="red">{e.counts[ABSENT] ?? 0}</Badge>
                 </td>
               </tr>
             ))}
@@ -182,42 +189,33 @@ export default function DashboardPage() {
         </>
       ) : (
         <>
-          <div className="stats three">
-            {[
-              ['Equipamentos cadastrados', equipmentWithEffectiveStatus.length],
-              ['Em uso', inUseCount],
-              ['Disponíveis', availableCount],
-            ].map(([l, v]) => (
-              <div className="stat" key={l}>
+          <div className="stats four">
+            {equipmentStats.map((s) => (
+              <div className="stat" key={s.label}>
                 <div>
-                  {l}
-                  <Package size={18} />
+                  {s.label}
+                  <s.icon size={18} />
                 </div>
-                <strong>{v}</strong>
-                <small>Inventário de equipamentos</small>
+                <strong>{s.value}</strong>
+                <small>Situação atual do inventário</small>
               </div>
             ))}
           </div>
-          <DataTable headers={['Equipamento', 'Tipo', 'Identificação', 'Status']}>
-            {equipmentWithEffectiveStatus.map((e) => {
-              const st = e.effectiveStatus.trim().toLowerCase();
-              const tone =
-                st === 'disponível' || st === 'disponivel' || st === 'ativo'
-                  ? 'green'
-                  : st === 'em uso'
-                    ? 'amber'
-                    : 'neutral';
-              return (
-                <tr key={e.id}>
-                  <td>{e.name}</td>
-                  <td>{e.type}</td>
-                  <td>{e.serial || '—'}</td>
-                  <td>
-                    <Badge tone={tone}>{e.effectiveStatus}</Badge>
-                  </td>
-                </tr>
-              );
-            })}
+          <DataTable
+            headers={['Equipamento', 'Tipo', 'Identificação', 'Status', 'Em uso por']}
+            empty={!equipment.length}
+          >
+            {equipment.map((e) => (
+              <tr key={e.id}>
+                <td>{e.name}</td>
+                <td>{e.type}</td>
+                <td>{e.serial || '—'}</td>
+                <td>
+                  <Badge tone={equipmentStatusTone(e.status)}>{e.status}</Badge>
+                </td>
+                <td>{e.openUseEmployee || '—'}</td>
+              </tr>
+            ))}
           </DataTable>
         </>
       )}

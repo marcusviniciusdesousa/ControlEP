@@ -68,41 +68,38 @@ Veja [a documentação da arquitetura](docs/architecture.md) para entender o flu
 
 ## Rotas
 
-| URL                 | Página              | Funções                                        |
-| ------------------- | ------------------- | ---------------------------------------------- |
-| `/`                 | Painel              | Indicadores por período, equipe e equipamentos |
-| `/presenca`         | Presença            | Registro diário, filtros, impressão e CSV      |
-| `/uso-equipamentos` | Uso de equipamentos | Empréstimos, devoluções, filtros e CSV         |
-| `/funcionarios`     | Funcionários        | Cadastro, edição, busca e exclusão             |
-| `/equipamentos`     | Equipamentos        | Inventário, edição, exclusão, histórico e CSV  |
-| `/aprovacoes`       | Aprovações          | Aprovar ou recusar solicitações                |
-| `/gestao`           | Gestão              | Papéis, permissões e configuração da operação  |
-| `/usuarios`         | Usuários            | Listagem e atribuição de papéis                |
-| `/login`            | Login               | Interface demonstrativa de entrada             |
-| `/cadastro`         | Cadastro            | Interface demonstrativa de cadastro            |
-| `/recuperar-senha`  | Recuperação         | Interface de solicitação de redefinição        |
-| `/redefinir-senha`  | Redefinição         | Estado de link ausente ou inválido             |
-| Qualquer outra URL  | Não encontrada      | Retorno ao painel                              |
+| URL                 | Página              | Funções                                         |
+| ------------------- | ------------------- | ----------------------------------------------- |
+| `/`                 | Painel              | Indicadores por período, equipe e equipamentos  |
+| `/presenca`         | Presença            | Registro diário, filtros, impressão e CSV       |
+| `/uso-equipamentos` | Uso de equipamentos | Empréstimos, devoluções, filtros e CSV          |
+| `/funcionarios`     | Funcionários        | Cadastro, edição, busca e exclusão              |
+| `/equipamentos`     | Equipamentos        | Inventário, edição, exclusão, histórico e CSV   |
+| `/aprovacoes`       | Aprovações          | Aprovar ou recusar solicitações                 |
+| `/gestao`           | Gestão              | Papéis, permissões e configuração da operação   |
+| `/usuarios`         | Usuários            | Listagem e atribuição de papéis                 |
+| `/login`            | Login               | Entrada com e-mail e senha (sessão por cookies) |
+| `/cadastro`         | Cadastro            | Solicitação de acesso (aguarda aprovação)       |
+| `/recuperar-senha`  | Recuperação         | Código por e-mail e definição de nova senha     |
+| `/redefinir-senha`  | Redefinição         | Orienta a solicitar um novo código              |
+| Qualquer outra URL  | Não encontrada      | Retorno ao painel                               |
 
-As rotas são públicas. Login, Google e recuperação de senha não realizam autenticação nem envio de e-mail nesta etapa.
+As páginas internas exigem sessão autenticada. As permissões de cada ação são verificadas pelo back-end.
 
 ## Ambiente e GitHub
 
 - `.env`: configuração local, ignorada pelo Git.
-- `.env.local`: sobrescritas opcionais por máquina, também ignoradas.
 - `.env.example`: modelo sem segredos, destinado ao repositório.
 
-**Ignorar um arquivo no Git não torna seus valores secretos no navegador.** Tudo que usa o prefixo `VITE_` pode aparecer no JavaScript de produção. Senhas de banco, chaves privadas, segredos OAuth e tokens de serviços devem ficar no **backend**, que ainda não faz parte deste projeto.
+**Ignorar um arquivo no Git não torna seus valores secretos no navegador.** Tudo que usa o prefixo `VITE_` aparece no JavaScript de produção. Senhas de banco, segredos JWT e credenciais de e-mail ficam no `.env` do **back-end**.
 
-As configurações públicas ficam centralizadas em `src/config/env.ts`. `VITE_APP_NAME` define o título da aba e o nome do rodapé. `VITE_API_BASE_URL` está reservada para a integração futura e ainda não dispara requisições.
+As configurações públicas ficam centralizadas em `src/config/env.ts`. Leia [a documentação de ambiente](docs/environment.md) antes de adicionar novas variáveis.
 
-Leia [a documentação de ambiente](docs/environment.md) antes de adicionar novas variáveis.
+## Dados e sessão
 
-## Persistência e escopo atual
+Todos os cadastros (funcionários, equipamentos, empréstimos, presença, turnos, usuários e papéis) são lidos e gravados na API; após cada operação a tela recarrega os dados do servidor. Somente a aba "Operação" da Gestão ainda é salva no `localStorage`.
 
-Os dados são salvos no `localStorage` do navegador, usando as mesmas chaves da primeira versão para preservar os registros já existentes. Os exemplos só são usados quando a coleção não existe. Filtros são estados locais de cada página. Limpe os dados do site no navegador para restaurar os exemplos.
-
-O armazenamento é demonstrativo, sem sincronização entre dispositivos, autorização ou API. Os empréstimos ainda referenciam nomes/identificações textuais; a integração com o backend deverá adotar relacionamentos por ID e validar permissões no servidor. Os testes de rotas verificam renderização e composição dos componentes, não a aparência em navegador.
+A sessão usa cookies `httpOnly`: um access token curto e um refresh token renovado a cada uso. Quando uma requisição recebe 401, o cliente chama `/refresh` uma única vez e repete a requisição; se a renovação falhar, a sessão é encerrada com a mensagem "Sua sessão expirou". Respostas 403 indicam falta de permissão e não encerram a sessão.
 
 ## Publicação
 

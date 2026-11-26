@@ -8,20 +8,41 @@ const form = (fields) => {
   return data;
 };
 
-test('papéis preservam todas as permissões e o identificador na edição', () => {
+test('papéis preservam o identificador e todas as permissões selecionadas', () => {
   const result = parseRecord(
     'role',
     form([
       ['name', ' Liderança '],
-      ['permission', 'Presença'],
-      ['permission', 'Equipamentos'],
+      ['permission', '3'],
+      ['permission', '7'],
     ]),
     { id: 'original' },
   );
   assert.deepEqual(result, {
     kind: 'role',
-    value: { id: 'original', name: 'Liderança', permissions: 'Presença, Equipamentos' },
+    value: { id: 'original', name: 'Liderança', permissionIds: ['3', '7'] },
   });
+});
+
+test('funcionário exige admissão e envia o status nos dois sentidos', () => {
+  const base = [
+    ['name', 'Maria'],
+    ['positionId', '1'],
+    ['shiftId', '2'],
+  ];
+  assert.throws(() => parseRecord('employee', form([...base, ['status', 'Ativo']])), /admissão/);
+  const active = parseRecord(
+    'employee',
+    form([...base, ['admission', '2026-11-03'], ['status', 'Ativo']]),
+  );
+  assert.equal(active.value.active, true);
+  const inactive = parseRecord(
+    'employee',
+    form([...base, ['admission', '2026-11-03'], ['status', 'Inativo']]),
+    { id: '9' },
+  );
+  assert.equal(inactive.value.active, false);
+  assert.equal(inactive.value.id, '9');
 });
 
 test('empréstimo recusa devolução anterior ao início', () => {
@@ -30,8 +51,8 @@ test('empréstimo recusa devolução anterior ao início', () => {
       parseRecord(
         'usage',
         form([
-          ['equipment', 'PDA'],
-          ['employee', 'Rai'],
+          ['equipmentId', '1'],
+          ['employeeId', '2'],
           ['start', '2026-11-02T10:00'],
           ['end', '2026-11-02T09:00'],
         ]),

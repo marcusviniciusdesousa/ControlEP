@@ -4,43 +4,18 @@ const permissionsController = require("../../controllers/permissionsController")
 const verifyRoles = require("../../middleware/verifyRoles");
 const PERMISSIONS_LIST = require("../../config/rolesPermissionsList");
 
-// Verifying the access token before using the command
-router
-  .route("/")
-  .get(
-    verifyRoles([PERMISSIONS_LIST.ROLES]),
-    permissionsController.getAllPermissions,
-  ); // Route to get all permissions
+const canManageRoles = verifyRoles([PERMISSIONS_LIST.ROLES]);
+
+router.get("/", canManageRoles, permissionsController.getAllPermissions); // Todas as permissões
+
+// Rota usada pelo front-end
+router.get("/roles/:id_role", canManageRoles, permissionsController.getPermissionsByRoleID);
 
 router
   .route("/:id_role/:id_permission")
-  .put(
-    verifyRoles([PERMISSIONS_LIST.ROLES]),
-    permissionsController.addPermissionToRole,
-  ) // Route to add a permission to a role
-  .delete(
-    verifyRoles([PERMISSIONS_LIST.ROLES]),
-    permissionsController.deletePermissionFromRole,
-  ); // Route to remove permission from role
+  .put(canManageRoles, permissionsController.addPermissionToRole) // Adiciona permissão ao papel
+  .delete(canManageRoles, permissionsController.deletePermissionFromRole); // Remove permissão do papel
 
-router
-  .route("/:id_role")
-  .get(
-    verifyRoles([PERMISSIONS_LIST.ROLES]),
-    permissionsController.getPermissionsByRoleID,
-  ); // Route to get all permissions related to a role
-router
-  .route("/roles/:id_role")
-  .get(
-    verifyRoles([PERMISSIONS_LIST.ROLES]),
-    permissionsController.getPermissionsByRoleID,
-  ); // Route expected by front-end
+router.get("/:id_role", canManageRoles, permissionsController.getPermissionsByRoleID);
 
-router
-  .route("/:id_role")
-  .get(
-    verifyRoles([PERMISSIONS_LIST.ROLES]),
-    permissionsController.getPermissionsByRoleID,
-  ); // Route to get all permissions related to a role
-  
 module.exports = router;

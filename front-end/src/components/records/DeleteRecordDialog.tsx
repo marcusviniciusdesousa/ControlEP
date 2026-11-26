@@ -3,67 +3,90 @@ import { useState } from 'react';
 import { useControl } from '../../contexts/ControlContext';
 import { useNotification } from '../../contexts/NotificationContext';
 import {
-  ApiError,
   deleteEmployee,
+  deleteEquipment,
+  deleteEquipmentUse,
   deleteRole,
-  fetchEmployees,
-  fetchRolesWithPermissions,
-  fetchShifts,
+  errorMessage,
 } from '../../services/api';
-import type { DeleteTarget } from '../../types/models';
+import type { DeleteTarget, RecordKind } from '../../types/models';
 import { Modal } from '../ui/Modal';
+
+const descriptions: Record<RecordKind, string> = {
+  employee:
+    'Funcionários com histórico de presença ou de uso de equipamentos não podem ser excluídos; nesse caso, altere o status para Inativo.',
+  equipment:
+    'Se o equipamento possuir histórico de empréstimos, ele deixará de aparecer nas listagens, mas o histórico será preservado.',
+  usage:
+    'O registro de uso será removido. Se o empréstimo estiver em aberto, o equipamento volta a ficar disponível.',
+  role: 'Papéis atribuídos a usuários não podem ser excluídos.',
+};
 
 export function DeleteRecordDialog({
   target,
   onClose,
+  onDeleted,
 }: {
   target: NonNullable<DeleteTarget>;
   onClose: () => void;
+  onDeleted: (kind: RecordKind) => void;
 }) {
-  const { setEmployees, setUsage, setRoles } = useControl();
+  const { reloadEmployees, reloadEquipment, reloadRoles } = useControl();
   const { notify } = useNotification();
   const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState('');
 
   const remove = async () => {
     if (deleting) return;
     setDeleting(true);
+    setError('');
 
     try {
       switch (target.kind) {
-        case 'employee': {
+        case 'employee':
           await deleteEmployee(target.id);
-          const shifts = await fetchShifts().catch(() => []);
-          setEmployees(await fetchEmployees(shifts));
+          await reloadEmployees();
           notify('Funcionário excluído.');
           break;
-        }
-        case 'role': {
+        case 'role':
           await deleteRole(target.id);
-          setRoles(await fetchRolesWithPermissions());
+          await reloadRoles();
           notify('Papel excluído.');
           break;
-        }
         case 'equipment':
-          notify('Equipamentos não podem ser excluídos permanentemente. Altere o status para Inativo ao editar.');
+          notify(await deleteEquipment(target.id));
+          await reloadEquipment();
           break;
         case 'usage':
-          setUsage((rows) => rows.filter((row) => row.id !== target.id));
+          await deleteEquipmentUse(target.id);
+          await reloadEquipment();
           notify('Registro de uso excluído.');
           break;
       }
+      onDeleted(target.kind);
       onClose();
     } catch (err) {
-      notify(err instanceof ApiError ? err.message : 'Não foi possível excluir o registro.');
+      setError(errorMessage(err, 'Não foi possível excluir o registro.'));
       setDeleting(false);
     }
   };
 
   return (
-    <Modal title="Excluir este registro?" onClose={onClose} className="confirm" alert>
+    <Modal
+      title={target.label ? `Excluir "${target.label}"?` : 'Excluir este registro?'}
+      onClose={onClose}
+      className="confirm"
+      alert
+    >
       <span className="delete-symbol">
         <Trash2 size={24} />
       </span>
-      <p>Esta ação removerá o registro permanentemente do sistema.</p>
+      <p>{descriptions[target.kind]}</p>
+      {error && (
+        <p role="alert" className="form-error">
+          {error}
+        </p>
+      )}
       <div className="modal-footer">
         <button className="secondary" onClick={onClose} disabled={deleting}>
           Cancelar
